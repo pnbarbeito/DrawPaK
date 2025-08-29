@@ -6,7 +6,18 @@ export type SymbolEntry = {
 };
 
 export const SYMBOLS: Record<string, SymbolEntry> = {
-  transformer: {
+  trafo: {
+    svg: (
+      <svg viewBox="0 0 100 150" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="50" cy="55" r="30" stroke="#000" strokeWidth="2" fill="none" />
+        <circle cx="50" cy="90" r="30" stroke="#000" strokeWidth="2" fill="none" />
+        <path d="M50 0 L50 25" stroke="#000" strokeWidth="2" />
+        <path d="M50 120 L50 150" stroke="#000" strokeWidth="2" />
+      </svg>
+    ),
+    size: { w: 80, h: 120 },
+  },
+  trafo_2: {
     svg: (
       <svg viewBox="0 0 100 150" xmlns="http://www.w3.org/2000/svg">
         <circle cx="50" cy="55" r="30" stroke="#000" strokeWidth="2" fill="none" />
@@ -44,18 +55,19 @@ export const SYMBOLS: Record<string, SymbolEntry> = {
     ),
     size: { w: 80, h: 24 },
   },
-  earth: {
+  tierra: {
     svg: (
       <svg viewBox="0 0 25 35" xmlns="http://www.w3.org/2000/svg">
         <g>
           <path d="M0.5 24.5 L24.5 24.5" fill="none" stroke="#000" strokeWidth={1} strokeLinecap="butt" strokeLinejoin="miter" />
           <path d="M4.5 27.5 L20.5 27.5" fill="none" stroke="#000" strokeWidth={1} strokeLinecap="butt" strokeLinejoin="miter" />
           <path d="M16.5 30.5 L8.5 30.5" fill="none" stroke="#000" strokeWidth={1} strokeLinecap="butt" strokeLinejoin="miter" />
+          <path d="M14 33.5 L11 33.5" fill="none" stroke="#000" strokeWidth={1} strokeLinecap="butt" strokeLinejoin="miter" />
           <path d="M12.5 24.5 L12.5 4.5" fill="none" stroke="#000" strokeWidth={1} strokeLinecap="butt" strokeLinejoin="miter" />
         </g>
       </svg>
     ),
-    size: { w: 32, h: 48 },
+    size: { w: 40, h: 50 },
   },
 };
 

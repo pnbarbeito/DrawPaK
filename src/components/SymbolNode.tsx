@@ -19,7 +19,7 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ data }) => {
       handles.push({ id: 'left', position: Position.Left, type: 'source' });
       handles.push({ id: 'right', position: Position.Right, type: 'source' });
       break;
-    case 'transformer':
+    case 'trafo':
       handles.push({ id: 'top', position: Position.Top, type: 'source' });
       handles.push({ id: 'bottom', position: Position.Bottom, type: 'target' });
       break;
@@ -28,7 +28,7 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ data }) => {
       handles.push({ id: 'left', position: Position.Left, type: 'source' });
       handles.push({ id: 'right', position: Position.Right, type: 'source' });
       break;
-    case 'earth':
+    case 'tierra':
       handles.push({ id: 'top', position: Position.Top, type: 'source' });
       break;
     default:
