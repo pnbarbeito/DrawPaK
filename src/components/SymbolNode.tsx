@@ -58,6 +58,10 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data }) => {
       handles.push({ id: 'top', position: Position.Top, type: 'source' });
       break;
   }
+  // Normalize rotation and compute rotatedSize (used for wrapper dimensions and offset math)
+  const rotNorm = ((rotation % 360) + 360) % 360;
+  const rotSteps = Math.round(rotNorm / 90) % 4; // number of 90deg clockwise steps
+  const rotatedSize = (rotSteps % 2 === 0) ? { w: size.w, h: size.h } : { w: size.h, h: size.w };
 
   return (
       <div
@@ -73,21 +77,20 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data }) => {
       }}
     >
       {handles.map((h) => {
+        const HANDLE_SIZE = 8;
+        const HANDLE_GAP = 0; // gap between node edge and handle
         const baseStyle: React.CSSProperties = {
           position: 'absolute',
           background: '#555',
-          width: 8,
-          height: 8,
-          borderRadius: 4,
+          width: HANDLE_SIZE,
+          height: HANDLE_SIZE,
+          borderRadius: HANDLE_SIZE / 2,
           zIndex: 10,
         };
 
         const posStyle: React.CSSProperties = {};
-        // Determine effective position after rotation and flip
-        let effectivePos = h.position;
-        // Normalize rotation to [0,360)
-        const rotNorm = ((rotation % 360) + 360) % 360;
-        const rotSteps = Math.round(rotNorm / 90) % 4; // number of 90deg clockwise steps
+  // Determine effective position after rotation and flip
+  let effectivePos = h.position;
         // rotate position clockwise rotSteps times
         for (let i = 0; i < rotSteps; i++) {
           if (effectivePos === Position.Right) effectivePos = Position.Bottom;
@@ -113,8 +116,6 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data }) => {
           const num = parseFloat(s.replace('%', '')) || 0;
           return `${100 - num}%`;
         };
-  // When rotated by 90/270 the symbol width/height are effectively swapped for offset calculations
-  const rotatedSize = (rotSteps % 2 === 0) ? { w: size.w, h: size.h } : { w: size.h, h: size.w };
   const mirrorPx = (n: number, dim: number) => `${Math.max(0, dim - n)}px`;
 
         // For Left/Right handles, offset is a 'top' percentage/px relative to height
@@ -132,26 +133,23 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data }) => {
           }
         }
 
-        // Use percent-based placement with margins so handles are consistently outside the node
+        // Use calc-based placement so handles are positioned outside the node box
+        // left/top are relative to the wrapper box; we push the handle outside using HANDLE_GAP and HANDLE_SIZE
+        const outerOffsetPx = HANDLE_SIZE + HANDLE_GAP; // amount to push the handle fully outside the box
         if (effectivePos === Position.Right) {
-          posStyle.left = '100%';
-          posStyle.marginLeft = '0px';
+          posStyle.left = `calc(100% + ${HANDLE_GAP}px)`;
           posStyle.top = offsetValue;
           posStyle.transform = 'translateY(-50%)';
         } else if (effectivePos === Position.Left) {
-          posStyle.left = '0%';
-          // push leftwards by handle size + gap (8px handle + 6px gap = 14px)
-          posStyle.marginLeft = '-6px';
+          posStyle.left = `calc(0% - ${outerOffsetPx}px)`;
           posStyle.top = offsetValue;
           posStyle.transform = 'translateY(-50%)';
         } else if (effectivePos === Position.Top) {
-          posStyle.top = '0%';
-          posStyle.marginTop = '-6px';
+          posStyle.top = `calc(0% - ${outerOffsetPx}px)`;
           posStyle.left = offsetValue;
           posStyle.transform = 'translateX(-50%)';
         } else if (effectivePos === Position.Bottom) {
-          posStyle.top = '100%';
-          posStyle.marginTop = '0px';
+          posStyle.top = `calc(100% + ${HANDLE_GAP}px)`;
           posStyle.left = offsetValue;
           posStyle.transform = 'translateX(-50%)';
         }
@@ -169,8 +167,8 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data }) => {
 
       <div
         style={{
-          width: size.w,
-          height: size.h,
+          width: rotatedSize.w,
+          height: rotatedSize.h,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
