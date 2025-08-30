@@ -9,6 +9,11 @@
     "core:default",
     "opener:default",
     "dialog:default",
-    "fs:write-all"
+    "fs:write-all",
+    "sql:default",
+    "sql:allow-load",
+    "sql:allow-execute",
+    "sql:allow-select",
+    "sql:allow-close"
   ]
 }

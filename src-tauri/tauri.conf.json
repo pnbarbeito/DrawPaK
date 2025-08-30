@@ -12,13 +12,18 @@
   "app": {
     "windows": [
       {
-        "title": "drawpak",
+        "title": "DrawPaK",
         "width": 800,
         "height": 600
       }
     ],
     "security": {
       "csp": null
+    }
+  },
+  "plugins": {
+    "sql": {
+      "preload": ["sqlite:drawpak.db"]
     }
   },
   "bundle": {

@@ -12,8 +12,10 @@ import ReactFlow, {
     OnConnect,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import SYMBOLS from './components/symbols';
-import SymbolNode from './components/SymbolNode';
+import './App.css';
+import { SYMBOL_CATEGORIES } from './components/symbols';
+import { nodeTypes, defaultEdgeOptions, snapGrid } from './reactFlowConfig';
+import { initDatabase, saveSchema, getAllSchemas, deleteSchema, duplicateSchema, updateSchema, Schema } from './database';
 import { toPng } from 'html-to-image';
 import jsPDF from 'jspdf';
 // Tauri APIs (optional)
@@ -34,13 +36,26 @@ const tryLoadTauri = async () => {
 };
 // kick off load attempt
 tryLoadTauri();
-import { Box, AppBar, Toolbar, IconButton, Typography } from '@mui/material';
-import AddBoxIcon from '@mui/icons-material/AddBox';
+import { Box, AppBar, Toolbar, IconButton, Typography, Accordion, AccordionSummary, AccordionDetails, Button, TextField, Dialog, DialogTitle, DialogContent, DialogActions, List, ListItem, ListItemText, ListItemSecondaryAction, Checkbox, FormControlLabel } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
-import FolderOpenIcon from '@mui/icons-material/FolderOpen';
-import DeleteIcon from '@mui/icons-material/Delete';
-import ImageIcon from '@mui/icons-material/Image';
+import AddIcon from '@mui/icons-material/Add';
+import CheckIcon from '@mui/icons-material/Check';
+import CloseIcon from '@mui/icons-material/Close';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import RotateLeftIcon from '@mui/icons-material/RotateLeft';
+import RotateRightIcon from '@mui/icons-material/RotateRight';
+import FlipIcon from '@mui/icons-material/Flip';
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import ContentPasteIcon from '@mui/icons-material/ContentPaste';
+import CropFreeIcon from '@mui/icons-material/CropFree';
+import UndoIcon from '@mui/icons-material/Undo';
+import RedoIcon from '@mui/icons-material/Redo';
+import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
+import MergeTypeIcon from '@mui/icons-material/MergeType';
+import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 let id = 0;
 const getId = (): string => `node_${id++}`;
 
@@ -54,18 +69,554 @@ function snapToGridPos(
         y: Math.round(pos.y / gridSize) * gridSize,
     };
 }
+
+// Función centralizada para encontrar una posición libre
+function findFreePosition(
+    desiredPosition: { x: number; y: number },
+    nodes: Node<any>[],
+    excludeNodeId?: string,
+    gridSize = GRID_SIZE
+): { x: number; y: number } {
+    const isPositionOccupied = (pos: { x: number; y: number }) => {
+        return nodes.some(node => 
+            node.id !== excludeNodeId && 
+            node.position.x === pos.x && 
+            node.position.y === pos.y
+        );
+    };
+
+    let position = snapToGridPos(desiredPosition, gridSize);
+    
+    // Si la posición deseada está libre, usarla
+    if (!isPositionOccupied(position)) {
+        return position;
+    }
+
+    // Buscar en espiral alrededor de la posición deseada
+    const maxRadius = 10; // Máximo 10 celdas de radio
+    for (let radius = 1; radius <= maxRadius; radius++) {
+        // Probar posiciones en un patrón en espiral
+        const directions = [
+            { x: gridSize, y: 0 },      // derecha
+            { x: 0, y: gridSize },      // abajo
+            { x: -gridSize, y: 0 },     // izquierda
+            { x: 0, y: -gridSize },     // arriba
+            { x: gridSize, y: gridSize }, // diagonal inferior derecha
+            { x: -gridSize, y: gridSize }, // diagonal inferior izquierda
+            { x: -gridSize, y: -gridSize }, // diagonal superior izquierda
+            { x: gridSize, y: -gridSize }   // diagonal superior derecha
+        ];
+
+        for (const direction of directions) {
+            const candidatePos = {
+                x: position.x + (direction.x * radius),
+                y: position.y + (direction.y * radius)
+            };
+            
+            if (!isPositionOccupied(candidatePos)) {
+                return candidatePos;
+            }
+        }
+    }
+
+    // Si no se encuentra posición libre, devolver la original con un desplazamiento aleatorio
+    return {
+        x: position.x + (Math.random() * 4 - 2) * gridSize,
+        y: position.y + (Math.random() * 4 - 2) * gridSize
+    };
+}
+
 function FlowApp(): React.ReactElement {
     // Tipado específico para los datos de nodo/edge en esta app
-    type ElectNodeData = { label: string; rotation?: number; scale?: number; flipX?: boolean; flipY?: boolean };
+    type ElectNodeData = { label: string; rotation?: number; scale?: number; flipX?: boolean; flipY?: boolean; invertHandles?: boolean };
     type ElectEdgeData = Record<string, unknown>;
 
     const reactFlowWrapper = useRef<HTMLDivElement | null>(null);
-    // Memoize nodeTypes so React Flow doesn't warn about recreated objects
-    const NODE_TYPES = React.useMemo(() => ({ symbolNode: SymbolNode }), []);
     const [nodes, setNodes, onNodesChange] = useNodesState<ElectNodeData>([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState<ElectEdgeData>([]);
+    
+    // Clipboard para copiar/pegar nodos
+    const [clipboard, setClipboard] = React.useState<{ nodes: Node<ElectNodeData>[]; edges: any[] } | null>(null);
+    
+    // Estado para la selección de área de exportación
+    const [isSelectingExportArea, setIsSelectingExportArea] = React.useState(false);
+    const [exportArea, setExportArea] = React.useState<{ x: number; y: number; width: number; height: number } | null>(null);
+    const [isDrawingArea, setIsDrawingArea] = React.useState(false);
+    const [areaStart, setAreaStart] = React.useState<{ x: number; y: number } | null>(null);
+    const [showBackground, setShowBackground] = React.useState(true);
+    const [lastSaved, setLastSaved] = React.useState<Date | null>(null);
+    
+    // Estado para historial de deshacer/rehacer
+    const [history, setHistory] = React.useState<Array<{ nodes: Node<ElectNodeData>[]; edges: any[] }>>([]);
+    const [historyIndex, setHistoryIndex] = React.useState(-1);
+    const [isUndoRedoAction, setIsUndoRedoAction] = React.useState(false);
+    
+    // Estado para gestión de esquemas
+    const [showSchemasDialog, setShowSchemasDialog] = React.useState(false);
+    const [showSaveDialog, setShowSaveDialog] = React.useState(false);
+    const [schemas, setSchemas] = React.useState<Schema[]>([]);
+    const [schemaName, setSchemaName] = React.useState('');
+    const [schemaDescription, setSchemaDescription] = React.useState('');
+    const [isTemplate, setIsTemplate] = React.useState(false);
+    const [currentSchemaId, setCurrentSchemaId] = React.useState<number | null>(null); // ID del esquema actual en edición
+    const [currentSchemaName, setCurrentSchemaName] = React.useState<string>(''); // Nombre del esquema actual en edición
+    const [isHandlingNewSchema, setIsHandlingNewSchema] = React.useState(false); // Para prevenir ejecuciones múltiples
+    const [showNewSchemaConfirm, setShowNewSchemaConfirm] = React.useState(false); // Diálogo de confirmación para nuevo esquema
 
-    const onConnect: OnConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), [setEdges]);
+    // Inicializar la base de datos al cargar la aplicación
+    React.useEffect(() => {
+        initDatabase().catch(error => {
+            console.error('Error inicializando la base de datos:', error);
+        });
+    }, []);
+
+    // Funciones para manejar esquemas
+    const loadSchemas = useCallback(async () => {
+        try {
+            const allSchemas = await getAllSchemas();
+            setSchemas(allSchemas);
+        } catch (error) {
+            console.error('Error cargando esquemas:', error);
+        }
+    }, []);
+
+    const handleSaveSchema = useCallback(async () => {
+        try {
+            // Si hay un esquema actual en edición, actualizarlo directamente
+            if (currentSchemaId) {
+                await updateSchema(currentSchemaId, {
+                    nodes: JSON.stringify(nodes),
+                    edges: JSON.stringify(edges),
+                });
+                
+                // Actualizar localStorage
+                saveToLocalStorage(nodes, edges, currentSchemaId, currentSchemaName);
+                
+                await loadSchemas();
+                alert('Esquema actualizado correctamente');
+                return;
+            }
+            
+            // Si no hay esquema actual, pedir nombre para crear uno nuevo
+            if (!schemaName.trim()) {
+                alert('Por favor ingresa un nombre para el esquema');
+                return;
+            }
+
+            const newSchemaId = await saveSchema({
+                name: schemaName,
+                description: schemaDescription,
+                nodes: JSON.stringify(nodes),
+                edges: JSON.stringify(edges),
+            });
+
+            // Establecer el nuevo esquema como actual
+            setCurrentSchemaId(newSchemaId);
+            
+            // Actualizar localStorage con el nuevo ID
+            saveToLocalStorage(nodes, edges, newSchemaId, schemaName);
+
+            setShowSaveDialog(false);
+            setSchemaName('');
+            setSchemaDescription('');
+            setIsTemplate(false);
+            await loadSchemas();
+            alert('Esquema guardado correctamente');
+        } catch (error) {
+            console.error('Error guardando esquema:', error);
+            alert('Error al guardar el esquema');
+        }
+    }, [schemaName, schemaDescription, nodes, edges, isTemplate, loadSchemas, currentSchemaId, setCurrentSchemaId]);
+
+    // Función para manejar el clic del botón guardar
+    const handleSaveButtonClick = useCallback(() => {
+        // Si hay un esquema actual, guardar directamente sin abrir diálogo
+        if (currentSchemaId) {
+            handleSaveSchema();
+        } else {
+            // Si no hay esquema actual, abrir diálogo para pedir nombre
+            setShowSaveDialog(true);
+        }
+    }, [currentSchemaId, handleSaveSchema]);
+
+    const handleLoadSchema = useCallback(async (schema: Schema) => {
+        try {
+            const parsedNodes = JSON.parse(schema.nodes);
+            const parsedEdges = JSON.parse(schema.edges);
+            
+            setNodes(parsedNodes);
+            setEdges(parsedEdges);
+            setShowSchemasDialog(false);
+            
+            // Establecer el ID del esquema actual para futuras actualizaciones
+            setCurrentSchemaId(schema.id || null);
+            setCurrentSchemaName(schema.name || '');
+            
+            // Guardar en localStorage con el ID del esquema
+            saveToLocalStorage(parsedNodes, parsedEdges, schema.id || null, schema.name);
+            
+            // Sincronizar el contador de ID con los nodos cargados
+            let maxId = 0;
+            for (const node of parsedNodes) {
+                const match = node.id?.toString().match(/node_(\d+)/);
+                if (match) {
+                    maxId = Math.max(maxId, Number(match[1]));
+                }
+            }
+            id = maxId + 1;
+        } catch (error) {
+            console.error('Error cargando esquema:', error);
+            alert('Error al cargar el esquema');
+        }
+    }, [setNodes, setEdges, setCurrentSchemaId, setCurrentSchemaName]);
+
+    // Función para importar elementos de un esquema al esquema actual
+    const handleImportSchema = useCallback(async (schema: Schema) => {
+        try {
+            const parsedNodes = JSON.parse(schema.nodes);
+            const parsedEdges = JSON.parse(schema.edges);
+            
+            // Crear un mapa de IDs antiguos a nuevos para evitar conflictos
+            const nodeIdMap = new Map<string, string>();
+            
+            // Generar nuevos IDs para los nodos importados y encontrar posiciones libres
+            const newNodes = parsedNodes.map((node: any) => {
+                const newId = `node_${id++}`;
+                nodeIdMap.set(node.id, newId);
+                
+                // Usar findFreePosition para evitar colisiones
+                const desiredPosition = {
+                    x: node.position.x + 100, // Offset inicial
+                    y: node.position.y + 100
+                };
+                const freePosition = findFreePosition(desiredPosition, nodes);
+                
+                return {
+                    ...node,
+                    id: newId,
+                    selected: false, // Deseleccionar nodos importados
+                    position: freePosition
+                };
+            });
+            
+            // Actualizar IDs en las conexiones importadas
+            const newEdges = parsedEdges
+                .filter((edge: any) => nodeIdMap.has(edge.source) && nodeIdMap.has(edge.target))
+                .map((edge: any) => ({
+                    ...edge,
+                    id: `edge_${nodeIdMap.get(edge.source)}_${nodeIdMap.get(edge.target)}`,
+                    source: nodeIdMap.get(edge.source),
+                    target: nodeIdMap.get(edge.target),
+                    selected: false
+                }));
+            
+            // Agregar los nuevos elementos al esquema actual
+            const updatedNodes = [...nodes, ...newNodes];
+            const updatedEdges = [...edges, ...newEdges];
+            
+            setNodes(updatedNodes);
+            setEdges(updatedEdges);
+            setShowSchemasDialog(false);
+            
+        } catch (error) {
+            console.error('Error importando esquema:', error);
+            alert('Error al importar el esquema');
+        }
+    }, [nodes, edges, setNodes, setEdges]);
+
+    const handleDeleteSchema = useCallback(async (schemaId: number, schemaName: string) => {
+        if (window.confirm(`¿Estás seguro de que quieres eliminar el esquema "${schemaName}"?`)) {
+            try {
+                await deleteSchema(schemaId);
+                await loadSchemas();
+                alert('Esquema eliminado correctamente');
+            } catch (error) {
+                console.error('Error eliminando esquema:', error);
+                alert('Error al eliminar el esquema');
+            }
+        }
+    }, [loadSchemas]);
+
+    const handleDuplicateSchema = useCallback(async (schemaId: number, originalName: string) => {
+        const newName = prompt(`Ingresa el nombre para la copia de "${originalName}":`, `${originalName} (copia)`);
+        if (newName && newName.trim()) {
+            try {
+                await duplicateSchema(schemaId, newName.trim());
+                await loadSchemas();
+                alert('Esquema duplicado correctamente');
+            } catch (error) {
+                console.error('Error duplicando esquema:', error);
+                alert('Error al duplicar el esquema');
+            }
+        }
+    }, [loadSchemas]);
+
+    // Constantes para localStorage
+    const STORAGE_KEY = 'drawpak-current-schema';
+    const CURRENT_SCHEMA_KEY = 'drawpak-current-schema-id';
+
+    // Funciones de persistencia
+    const saveToLocalStorage = useCallback((currentNodes: Node<ElectNodeData>[], currentEdges: any[], schemaId: number | null = null, schemaName: string = '') => {
+        try {
+            const schemaData = {
+                nodes: currentNodes,
+                edges: currentEdges,
+                timestamp: Date.now(),
+                currentSchemaId: schemaId || currentSchemaId,
+                currentSchemaName: schemaName || currentSchemaName
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(schemaData));
+            
+            // Guardar también el ID del esquema actual por separado
+            if (schemaId !== null || currentSchemaId !== null) {
+                localStorage.setItem(CURRENT_SCHEMA_KEY, String(schemaId || currentSchemaId));
+            } else {
+                localStorage.removeItem(CURRENT_SCHEMA_KEY);
+            }
+            
+            setLastSaved(new Date());
+        } catch (error) {
+            console.error('Error guardando en localStorage:', error);
+        }
+    }, [currentSchemaId, currentSchemaName]);
+
+    const loadFromLocalStorage = useCallback(() => {
+        try {
+            const savedData = localStorage.getItem(STORAGE_KEY);
+            const savedSchemaId = localStorage.getItem(CURRENT_SCHEMA_KEY);
+            
+            if (savedData) {
+                const schemaData = JSON.parse(savedData);
+                
+                // Establecer el ID del esquema actual si existe
+                if (savedSchemaId) {
+                    setCurrentSchemaId(Number(savedSchemaId));
+                } else if (schemaData.currentSchemaId) {
+                    setCurrentSchemaId(schemaData.currentSchemaId);
+                }
+                
+                // Establecer el nombre del esquema actual si existe
+                if (schemaData.currentSchemaName) {
+                    setCurrentSchemaName(schemaData.currentSchemaName);
+                }
+                
+                return {
+                    nodes: schemaData.nodes || [],
+                    edges: schemaData.edges || [],
+                    currentSchemaId: Number(savedSchemaId) || schemaData.currentSchemaId || null,
+                    currentSchemaName: schemaData.currentSchemaName || ''
+                };
+            }
+        } catch (error) {
+            console.error('Error cargando desde localStorage:', error);
+        }
+        return { nodes: [], edges: [], currentSchemaId: null, currentSchemaName: '' };
+    }, []);
+
+    // Cargar esquema al inicializar la aplicación
+    React.useEffect(() => {
+        const { nodes: savedNodes, edges: savedEdges, currentSchemaId: savedSchemaId, currentSchemaName: savedSchemaName } = loadFromLocalStorage();
+        if (savedNodes.length > 0 || savedEdges.length > 0) {
+            setNodes(savedNodes);
+            setEdges(savedEdges);
+            
+            // Establecer el ID del esquema actual si existe
+            if (savedSchemaId) {
+                setCurrentSchemaId(savedSchemaId);
+            }
+            
+            // Establecer el nombre del esquema actual si existe
+            if (savedSchemaName) {
+                setCurrentSchemaName(savedSchemaName);
+            }
+            
+            // Sincronizar el contador de ID con los nodos cargados
+            let maxId = 0;
+            for (const node of savedNodes) {
+                const match = node.id?.toString().match(/node_(\d+)/);
+                if (match) {
+                    maxId = Math.max(maxId, Number(match[1]));
+                }
+            }
+            id = maxId + 1;
+            
+            // Inicializar historial con el estado cargado (después de un breve delay)
+            setTimeout(() => {
+                const initialState = {
+                    nodes: JSON.parse(JSON.stringify(savedNodes)),
+                    edges: JSON.parse(JSON.stringify(savedEdges))
+                };
+                setHistory([initialState]);
+                setHistoryIndex(0);
+                lastNodesRef.current = JSON.stringify(savedNodes);
+                lastEdgesRef.current = JSON.stringify(savedEdges);
+            }, 100);
+        } else {
+            // Si no hay datos guardados, inicializar historial vacío
+            setHistory([]);
+            setHistoryIndex(-1);
+        }
+    }, [loadFromLocalStorage, setNodes, setEdges]);
+
+    // Guardar automáticamente cuando cambien los nodos o edges
+    React.useEffect(() => {
+        if (nodes.length > 0 || edges.length > 0) {
+            saveToLocalStorage(nodes, edges, currentSchemaId, currentSchemaName);
+        }
+    }, [nodes, edges, saveToLocalStorage, currentSchemaId, currentSchemaName]);
+
+    // Funciones de historial para deshacer/rehacer
+    const saveToHistory = useCallback((currentNodes: Node<ElectNodeData>[], currentEdges: any[]) => {
+        setHistory(prevHistory => {
+            // Crear una copia profunda del estado actual
+            const newState = {
+                nodes: JSON.parse(JSON.stringify(currentNodes)),
+                edges: JSON.parse(JSON.stringify(currentEdges))
+            };
+            
+            // Verificar si el estado actual es diferente al último en el historial
+            if (prevHistory.length > 0) {
+                const lastState = prevHistory[prevHistory.length - 1];
+                if (JSON.stringify(lastState.nodes) === JSON.stringify(newState.nodes) && 
+                    JSON.stringify(lastState.edges) === JSON.stringify(newState.edges)) {
+                    return prevHistory; // No hay cambios, no guardar
+                }
+            }
+            
+            // Si estamos en medio del historial, descartar todo lo que está después del índice actual
+            const currentHistoryIndex = historyIndex;
+            const newHistory = prevHistory.slice(0, currentHistoryIndex + 1);
+            newHistory.push(newState);
+            
+            // Limitar el historial a los últimos 50 estados para evitar problemas de memoria
+            if (newHistory.length > 50) {
+                newHistory.shift();
+                setHistoryIndex(prev => Math.max(0, prev - 1));
+                return newHistory;
+            }
+            
+            setHistoryIndex(newHistory.length - 1);
+            return newHistory;
+        });
+    }, [historyIndex]);
+
+    const undo = useCallback(() => {
+        if (historyIndex > 0) {
+            setIsUndoRedoAction(true);
+            const previousState = history[historyIndex - 1];
+            
+            // Limpiar cualquier timeout pendiente de guardar historial
+            if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current);
+                saveTimeoutRef.current = null;
+            }
+            
+            setNodes(previousState.nodes);
+            setEdges(previousState.edges);
+            setHistoryIndex(historyIndex - 1);
+            
+            // Actualizar las referencias para evitar que se guarde nuevamente
+            lastNodesRef.current = JSON.stringify(previousState.nodes);
+            lastEdgesRef.current = JSON.stringify(previousState.edges);
+            
+            // Resetear la bandera después de un breve delay
+            setTimeout(() => setIsUndoRedoAction(false), 50);
+        }
+    }, [historyIndex, history, setNodes, setEdges]);
+
+    const redo = useCallback(() => {
+        if (historyIndex < history.length - 1) {
+            setIsUndoRedoAction(true);
+            const nextState = history[historyIndex + 1];
+            
+            // Limpiar cualquier timeout pendiente de guardar historial
+            if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current);
+                saveTimeoutRef.current = null;
+            }
+            
+            setNodes(nextState.nodes);
+            setEdges(nextState.edges);
+            setHistoryIndex(historyIndex + 1);
+            
+            // Actualizar las referencias para evitar que se guarde nuevamente
+            lastNodesRef.current = JSON.stringify(nextState.nodes);
+            lastEdgesRef.current = JSON.stringify(nextState.edges);
+            
+            // Resetear la bandera después de un breve delay
+            setTimeout(() => setIsUndoRedoAction(false), 50);
+        }
+    }, [historyIndex, history, setNodes, setEdges]);
+
+    // Guardar en historial cuando cambien los nodos o edges (pero no durante undo/redo)
+    const lastNodesRef = React.useRef<string>('');
+    const lastEdgesRef = React.useRef<string>('');
+    const saveTimeoutRef = React.useRef<number | null>(null);
+    
+    React.useEffect(() => {
+        if (isUndoRedoAction) return;
+        
+        const nodesStr = JSON.stringify(nodes);
+        const edgesStr = JSON.stringify(edges);
+        
+        // Solo guardar si realmente hay cambios
+        if (nodesStr !== lastNodesRef.current || edgesStr !== lastEdgesRef.current) {
+            // Limpiar timeout anterior si existe
+            if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current);
+            }
+            
+            // Debounce para evitar demasiadas entradas en el historial
+            saveTimeoutRef.current = setTimeout(() => {
+                // Verificar otra vez si no estamos en una operación de undo/redo
+                if (!isUndoRedoAction) {
+                    if (nodes.length > 0 || edges.length > 0 || lastNodesRef.current !== '' || lastEdgesRef.current !== '') {
+                        saveToHistory(nodes, edges);
+                    }
+                    lastNodesRef.current = nodesStr;
+                    lastEdgesRef.current = edgesStr;
+                }
+            }, 100); // Reducir el tiempo de debounce a 100ms
+        }
+        
+        // Cleanup del timeout al desmontar
+        return () => {
+            if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current);
+            }
+        };
+    }, [nodes, edges, saveToHistory, isUndoRedoAction]);
+
+    // Agregar atajos de teclado para undo/redo
+    React.useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.ctrlKey || e.metaKey) {
+                if (e.key === 'z' && !e.shiftKey) {
+                    e.preventDefault();
+                    undo();
+                } else if ((e.key === 'y') || (e.key === 'z' && e.shiftKey)) {
+                    e.preventDefault();
+                    redo();
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [undo, redo]);
+
+    const onConnect: OnConnect = useCallback((params) => {
+        // Ensure connections align with grid by using SmoothStep lines
+        const newEdge = {
+            ...params,
+            type: 'smoothstep',
+            style: {
+                strokeWidth: 2,
+                stroke: '#000000' // Color negro por defecto
+            },
+        };
+        setEdges((eds) => addEdge(newEdge, eds));
+    }, [setEdges]);
 
     const handleDelete = useCallback(() => {
         // Remove selected nodes and edges. Also remove edges connected to removed nodes.
@@ -78,6 +629,146 @@ function FlowApp(): React.ReactElement {
         setEdges((eds) => eds.filter((e) => !e.selected && !removedNodeIds.includes(e.source) && !removedNodeIds.includes(e.target)));
     }, [setNodes, setEdges]);
 
+    const handleClearAll = useCallback(() => {
+        console.log('🗑️ handleClearAll ejecutándose...', {
+            timestamp: new Date().toISOString(),
+            stackTrace: new Error().stack?.split('\n').slice(1, 5).join('\n')
+        });
+        
+        // Clear all nodes and edges
+        setNodes([]);
+        setEdges([]);
+        // Reset ID counter
+        id = 0;
+        // Limpiar el esquema actual
+        setCurrentSchemaId(null);
+        setCurrentSchemaName('');
+        // Limpiar también el localStorage
+        try {
+            localStorage.removeItem(STORAGE_KEY);
+            localStorage.removeItem(CURRENT_SCHEMA_KEY);
+            console.log('✅ localStorage limpiado');
+        } catch (error) {
+            console.error('Error limpiando localStorage:', error);
+        }
+        // Limpiar historial
+        setHistory([]);
+        setHistoryIndex(-1);
+        console.log('🎯 handleClearAll completado');
+    }, [setNodes, setEdges, setCurrentSchemaId, setCurrentSchemaName]);
+
+    const handleNewSchema = useCallback(() => {
+        if (isHandlingNewSchema) {
+            console.log('⚠️ handleNewSchema ya se está ejecutando, ignorando...');
+            return;
+        }
+        
+        console.log('🆕 Botón Nuevo Esquema presionado', { 
+            nodes: nodes.length, 
+            edges: edges.length,
+            currentSchemaId,
+            currentSchemaName 
+        });
+        
+        // Solo mostrar confirmación si hay contenido
+        if (nodes.length > 0 || edges.length > 0) {
+            console.log('⚠️ Hay contenido, mostrando diálogo de confirmación...');
+            setShowNewSchemaConfirm(true);
+        } else {
+            // Si no hay contenido, limpiar directamente
+            console.log('ℹ️ No hay contenido, limpiando directamente');
+            handleClearAll();
+        }
+    }, [nodes.length, edges.length, currentSchemaId, currentSchemaName, handleClearAll, isHandlingNewSchema]);
+
+    const confirmNewSchema = useCallback(() => {
+        console.log('✅ Usuario confirmó crear nuevo esquema');
+        setShowNewSchemaConfirm(false);
+        setIsHandlingNewSchema(false);
+        handleClearAll();
+    }, [handleClearAll]);
+
+    const cancelNewSchema = useCallback(() => {
+        console.log('❌ Usuario canceló crear nuevo esquema');
+        setShowNewSchemaConfirm(false);
+        setIsHandlingNewSchema(false);
+    }, []);
+
+    // Funciones de copiar y pegar
+    const copySelectedElements = useCallback(() => {
+        const selectedNodes = nodes.filter(node => node.selected);
+        const selectedNodeIds = selectedNodes.map(node => node.id);
+        const selectedEdges = edges.filter(edge => 
+            selectedNodeIds.includes(edge.source) && selectedNodeIds.includes(edge.target)
+        );
+        
+        if (selectedNodes.length > 0) {
+            setClipboard({ nodes: selectedNodes, edges: selectedEdges });
+            console.log(`Copiados ${selectedNodes.length} nodos y ${selectedEdges.length} conexiones`);
+        }
+    }, [nodes, edges, setClipboard]);
+
+    const pasteElements = useCallback(() => {
+        if (!clipboard || clipboard.nodes.length === 0) return;
+
+        // Mapeo para nuevos IDs
+        const idMapping: Record<string, string> = {};
+        
+        // Crear nuevos nodos con IDs únicos y posiciones libres
+        const newNodes = clipboard.nodes.map(node => {
+            const newId = getId();
+            idMapping[node.id] = newId;
+            
+            // Posición deseada (desplazada de la original)
+            const desiredPosition = {
+                x: node.position.x + GRID_SIZE * 2,
+                y: node.position.y + GRID_SIZE * 2
+            };
+            
+            // Encontrar una posición libre
+            const freePosition = findFreePosition(desiredPosition, nodes);
+            
+            return {
+                ...node,
+                id: newId,
+                position: freePosition,
+                selected: true // Seleccionar los elementos pegados
+            };
+        });
+
+        // Crear nuevas conexiones entre los nodos copiados
+        const newEdges = clipboard.edges.map(edge => ({
+            ...edge,
+            id: `edge_${Date.now()}_${Math.random()}`,
+            source: idMapping[edge.source],
+            target: idMapping[edge.target]
+        }));
+
+        // Deseleccionar elementos existentes y agregar los nuevos
+        setNodes(nds => nds.map(n => ({ ...n, selected: false })).concat(newNodes));
+        setEdges(eds => eds.concat(newEdges));
+
+        console.log(`Pegados ${newNodes.length} nodos y ${newEdges.length} conexiones`);
+    }, [clipboard, setNodes, setEdges, nodes]);
+
+    // Función helper para exportar sin fondo de puntos
+    const exportWithoutBackground = async (exportFunction: () => Promise<string | null>): Promise<string | null> => {
+        // Desactivar el fondo temporalmente
+        setShowBackground(false);
+        
+        // Esperar un frame para que se actualice la UI
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        
+        try {
+            // Realizar la exportación
+            const result = await exportFunction();
+            return result;
+        } finally {
+            // Reactivar el fondo
+            setShowBackground(true);
+        }
+    };
+
     useEffect(() => {
         const onKeyDown = (event: KeyboardEvent) => {
             // Delete or Backspace
@@ -86,23 +777,23 @@ function FlowApp(): React.ReactElement {
                 event.preventDefault();
                 handleDelete();
             }
+            // Ctrl+C para copiar
+            else if (event.ctrlKey && event.key === 'c') {
+                event.preventDefault();
+                copySelectedElements();
+            }
+            // Ctrl+V para pegar
+            else if (event.ctrlKey && event.key === 'v') {
+                event.preventDefault();
+                pasteElements();
+            }
         };
 
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [handleDelete]);
+    }, [handleDelete, copySelectedElements, pasteElements]);
 
-    const addNode = useCallback(() => {
-        const rawPos = { x: Math.random() * 400, y: Math.random() * 200 };
-        const pos = snapToGridPos(rawPos);
-        const newNode: Node<ElectNodeData> = {
-            id: getId(),
-            position: pos,
-            data: { label: 'Nuevo nodo' },
-            style: { padding: 10, borderRadius: 6, border: '1px solid #222' },
-        };
-        setNodes((nds) => nds.concat(newNode));
-    }, [setNodes]);
+
 
     // Drag handlers for palette items
     const onDragStart = (event: React.DragEvent, symbolKey: string) => {
@@ -119,10 +810,13 @@ function FlowApp(): React.ReactElement {
             const symbolKey = event.dataTransfer.getData('application/reactflow');
             if (!symbolKey) return;
 
-            const position = snapToGridPos({
+            const desiredPosition = {
                 x: event.clientX - reactFlowBounds.left,
                 y: event.clientY - reactFlowBounds.top,
-            });
+            };
+
+            // Encontrar una posición libre usando la función centralizada
+            const position = findFreePosition(desiredPosition, nodes);
 
             const newNode: Node<any> = {
                 id: getId(),
@@ -133,7 +827,7 @@ function FlowApp(): React.ReactElement {
 
             setNodes((nds) => nds.concat(newNode));
         },
-        [setNodes],
+        [setNodes, nodes],
     );
 
     const onDragOver = useCallback((event: React.DragEvent) => {
@@ -141,55 +835,161 @@ function FlowApp(): React.ReactElement {
         event.dataTransfer.dropEffect = 'move';
     }, []);
 
-    const onNodeDragStop = useCallback((_: React.MouseEvent, node: Node<ElectNodeData>) => {
-        // Snap node to grid when dragging stops
-        const snapped = snapToGridPos(node.position as { x: number; y: number });
-        setNodes((nds) => nds.map((n) => (n.id === node.id ? { ...n, position: snapped } : n)));
-    }, [setNodes]);
+    // Handlers para la selección de área de exportación
+    const handleCanvasMouseDown = useCallback((event: React.MouseEvent) => {
+        if (!isSelectingExportArea || !reactFlowWrapper.current) return;
+        
+        // Prevenir el comportamiento por defecto de ReactFlow
+        event.preventDefault();
+        event.stopPropagation();
+        
+        const rect = reactFlowWrapper.current.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        
+        setAreaStart({ x, y });
+        setIsDrawingArea(true);
+        setExportArea(null);
+    }, [isSelectingExportArea]);
 
-    const exportDiagram = useCallback(() => {
-        const payload = {
-            nodes,
-            edges,
-        };
-        const json = JSON.stringify(payload, null, 2);
-        // For now, log to console. Later: send to backend to save in DB
-        console.log('Export diagram JSON:', json);
-        alert('Diagram exported to console (JSON).');
-    }, [nodes, edges]);
+    const handleCanvasMouseMove = useCallback((event: React.MouseEvent) => {
+        if (!isSelectingExportArea || !isDrawingArea || !areaStart || !reactFlowWrapper.current) return;
+        
+        // Prevenir el comportamiento por defecto de ReactFlow
+        event.preventDefault();
+        event.stopPropagation();
+        
+        const rect = reactFlowWrapper.current.getBoundingClientRect();
+        const currentX = event.clientX - rect.left;
+        const currentY = event.clientY - rect.top;
+        
+        const x = Math.min(areaStart.x, currentX);
+        const y = Math.min(areaStart.y, currentY);
+        const width = Math.abs(currentX - areaStart.x);
+        const height = Math.abs(currentY - areaStart.y);
+        
+        setExportArea({ x, y, width, height });
+    }, [isSelectingExportArea, isDrawingArea, areaStart]);
 
-    // Save/load to localStorage
-    const saveToLocal = useCallback(() => {
-        try {
-            const payload = JSON.stringify({ nodes, edges });
-            localStorage.setItem('drawpak-diagram', payload);
-            alert('Diagrama guardado en localStorage.');
-        } catch (e) {
-            console.error('saveToLocal failed', e);
-            alert('Error al guardar en localStorage');
+    const handleCanvasMouseUp = useCallback((event: React.MouseEvent) => {
+        if (!isSelectingExportArea || !isDrawingArea) return;
+        
+        // Prevenir el comportamiento por defecto de ReactFlow
+        event.preventDefault();
+        event.stopPropagation();
+        
+        setIsDrawingArea(false);
+        setAreaStart(null);
+    }, [isSelectingExportArea, isDrawingArea]);
+
+    // Función para iniciar la selección de área
+    const startAreaSelection = useCallback(() => {
+        setIsSelectingExportArea(true);
+        setExportArea(null);
+    }, []);
+
+    // Función para cancelar la selección de área
+    const cancelAreaSelection = useCallback(() => {
+        setIsSelectingExportArea(false);
+        setExportArea(null);
+        setIsDrawingArea(false);
+        setAreaStart(null);
+    }, []);
+
+    // Nueva función de exportación PNG con área seleccionada
+    const exportSelectedAreaPNG = useCallback(async () => {
+        if (!exportArea || !reactFlowWrapper.current) {
+            alert('Primero selecciona un área para exportar');
+            return;
         }
-    }, [nodes, edges]);
 
-    const loadFromLocal = useCallback(() => {
         try {
-            const raw = localStorage.getItem('drawpak-diagram');
-            if (!raw) { alert('No hay diagrama guardado en localStorage'); return; }
-            const parsed = JSON.parse(raw) as { nodes: any[]; edges: any[] };
-            setNodes(parsed.nodes || []);
-            setEdges(parsed.edges || []);
-            // ensure id generator does not collide with loaded nodes
-            let maxId = 0;
-            for (const n of (parsed.nodes || [])) {
-                const m = n.id?.toString().match(/node_(\d+)/);
-                if (m) maxId = Math.max(maxId, Number(m[1]));
+            // Capturar toda la viewport sin fondo de puntos
+            const fullDataUrl = await exportWithoutBackground(async () => {
+                return await toPng(reactFlowWrapper.current!, { 
+                    cacheBust: true,
+                    backgroundColor: '#ffffff'
+                });
+            });
+
+            if (!fullDataUrl) return;
+
+            // Crear un canvas temporal para capturar solo el área seleccionada
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+
+            // Configurar el canvas con las dimensiones del área seleccionada
+            const ratio = window.devicePixelRatio || 1;
+            canvas.width = exportArea.width * ratio;
+            canvas.height = exportArea.height * ratio;
+            canvas.style.width = exportArea.width + 'px';
+            canvas.style.height = exportArea.height + 'px';
+            ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+            // Rellenar el fondo con blanco
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, exportArea.width, exportArea.height);
+            
+            // Crear una imagen con toda la viewport
+            const img = new Image();
+            await new Promise<void>((resolve, reject) => {
+                img.onload = () => resolve();
+                img.onerror = reject;
+                img.src = fullDataUrl;
+            });
+
+            // Dibujar solo la parte seleccionada en el canvas
+            ctx.drawImage(
+                img,
+                exportArea.x, exportArea.y, exportArea.width, exportArea.height, // área fuente
+                0, 0, exportArea.width, exportArea.height // área destino
+            );
+
+            // Convertir a PNG y descargar
+            const croppedDataUrl = canvas.toDataURL('image/png');
+            const bytes = dataUrlToUint8Array(croppedDataUrl);
+
+            // Intentar guardar con Tauri
+            if (tauriDialog && tauriFs) {
+                try {
+                    const path = await tauriDialog.save({ defaultPath: 'area_selected.png' });
+                    if (path) {
+                        await tauriFs.writeFile(path, bytes);
+                        cancelAreaSelection();
+                        return;
+                    }
+                } catch (err) {
+                    console.error('Tauri save failed', err);
+                }
             }
-            id = maxId + 1;
-            alert('Diagrama cargado desde localStorage.');
-        } catch (e) {
-            console.error('loadFromLocal failed', e);
-            alert('Error al cargar desde localStorage');
+
+            // Fallback: descarga del navegador
+            const a = document.createElement('a');
+            a.href = croppedDataUrl;
+            a.download = 'area_selected.png';
+            a.click();
+            
+            cancelAreaSelection();
+        } catch (error) {
+            console.error('Error exporting selected area:', error);
+            alert('Error al exportar el área seleccionada');
         }
-    }, [setNodes, setEdges]);
+    }, [exportArea, cancelAreaSelection, exportWithoutBackground]);
+
+    const onNodeDragStop = useCallback((_: React.MouseEvent, node: Node<ElectNodeData>) => {
+        // Encontrar una posición libre para el nodo arrastrado
+        const freePosition = findFreePosition(node.position as { x: number; y: number }, nodes, node.id);
+
+        // Ensure exact integer coordinates
+        freePosition.x = Math.round(freePosition.x);
+        freePosition.y = Math.round(freePosition.y);
+
+        setNodes((nds) => nds.map((n) => (n.id === node.id ? { ...n, position: freePosition } : n)));
+
+        // Force update of all edges to ensure they align properly
+        setEdges((eds) => [...eds]);
+    }, [setNodes, setEdges, nodes]);
 
     const dataUrlToUint8Array = (dataUrl: string) => {
         const base64 = dataUrl.split(',')[1];
@@ -234,7 +1034,7 @@ function FlowApp(): React.ReactElement {
                         try { dst.setAttribute(attr.name, attr.value); } catch (e) { /* ignore */ }
                     }
                 }
-            } catch (e) {}
+            } catch (e) { }
 
             const srcChildren = src.children || [];
             const dstChildren = dst.children || [];
@@ -285,7 +1085,10 @@ function FlowApp(): React.ReactElement {
         try {
             // allow one animation frame for styles and SVG to settle
             await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
-            const dataUrl = await toPng(clone as HTMLElement, { cacheBust: true });
+            const dataUrl = await toPng(clone as HTMLElement, { 
+                cacheBust: true,
+                backgroundColor: '#ffffff'
+            });
             return dataUrl;
         } finally {
             // cleanup
@@ -383,6 +1186,10 @@ function FlowApp(): React.ReactElement {
         if (!ctx) return null;
         ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 
+        // Rellenar el fondo con blanco
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, rect.width, rect.height);
+
         // draw edges (SVG) first
         try {
             const svgUrl = await getSerializedSvgDataUrl();
@@ -422,7 +1229,10 @@ function FlowApp(): React.ReactElement {
 
             // allow styles to settle
             await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
-            const nodesOnlyDataUrl = await toPng(clone as HTMLElement, { cacheBust: true });
+            const nodesOnlyDataUrl = await toPng(clone as HTMLElement, { 
+                cacheBust: true,
+                backgroundColor: '#ffffff'
+            });
             // draw nodes image on top of edges
             await new Promise<void>((res, rej) => {
                 const img = new Image();
@@ -443,7 +1253,10 @@ function FlowApp(): React.ReactElement {
                     const dx = nRect.left - rect.left;
                     const dy = nRect.top - rect.top;
                     console.debug('[export] node', nodeEl.getAttribute('data-id') || nodeEl.id, 'rect=', nRect, 'dx,dy=', dx, dy);
-                    const imgDataUrl = await toPng(nodeEl as HTMLElement, { cacheBust: true });
+                    const imgDataUrl = await toPng(nodeEl as HTMLElement, { 
+                        cacheBust: true,
+                        backgroundColor: '#ffffff'
+                    });
                     await new Promise<void>((res, rej) => {
                         const img = new Image();
                         img.onload = () => { try { ctx.drawImage(img, dx, dy, nRect.width, nRect.height); res(); } catch (e) { rej(e); } };
@@ -459,63 +1272,23 @@ function FlowApp(): React.ReactElement {
         return canvas.toDataURL('image/png');
     };
 
-    const exportPNG = async () => {
-        if (!reactFlowWrapper.current) return;
-    // Prefer composite export (SVG edges + rasterized nodes) for best fidelity
-    let dataUrl: string | null = null;
-    try {
-        dataUrl = await compositeViewportPng();
-    } catch (e) { console.warn('composite export failed', e); }
-    if (!dataUrl) {
-        try {
-            const svgUrl = await getSerializedSvgDataUrl();
-            if (svgUrl) dataUrl = await svgDataUrlToPngDataUrl(svgUrl);
-        } catch (e) {
-            console.warn('SVG export failed, falling back to DOM clone export', e);
-        }
-    }
-    if (!dataUrl) dataUrl = await captureViewportDataUrl();
-    if (!dataUrl) return;
-        const bytes = dataUrlToUint8Array(dataUrl);
-
-        // Try Tauri save
-        if (tauriDialog && tauriFs) {
-            try {
-                const path = await tauriDialog.save({ defaultPath: 'diagram.png' });
-                    if (path) {
-                    // plugin-fs exports writeFile for binary data: writeFile(path, Uint8Array|ArrayBuffer|...)
-                    await tauriFs.writeFile(path, bytes);
-                    return;
-                }
-            } catch (err) {
-                console.error('Tauri save failed', err);
-            }
-        }
-
-        // fallback browser download
-        const a = document.createElement('a');
-        a.href = dataUrl;
-        a.download = 'diagram.png';
-        a.click();
-    };
-
     const exportPDF = async () => {
         if (!reactFlowWrapper.current) return;
-    // Prefer composite export (SVG edges + rasterized nodes) for best fidelity
-    let dataUrl: string | null = null;
-    try {
-        dataUrl = await compositeViewportPng();
-    } catch (e) { console.warn('composite export failed', e); }
-    if (!dataUrl) {
+        // Prefer composite export (SVG edges + rasterized nodes) for best fidelity
+        let dataUrl: string | null = null;
         try {
-            const svgUrl = await getSerializedSvgDataUrl();
-            if (svgUrl) dataUrl = await svgDataUrlToPngDataUrl(svgUrl);
-        } catch (e) {
-            console.warn('SVG export failed, falling back to DOM clone export', e);
+            dataUrl = await compositeViewportPng();
+        } catch (e) { console.warn('composite export failed', e); }
+        if (!dataUrl) {
+            try {
+                const svgUrl = await getSerializedSvgDataUrl();
+                if (svgUrl) dataUrl = await svgDataUrlToPngDataUrl(svgUrl);
+            } catch (e) {
+                console.warn('SVG export failed, falling back to DOM clone export', e);
+            }
         }
-    }
-    if (!dataUrl) dataUrl = await captureViewportDataUrl();
-    if (!dataUrl) return;
+        if (!dataUrl) dataUrl = await captureViewportDataUrl();
+        if (!dataUrl) return;
         const img = new Image();
         img.src = dataUrl;
         await img.decode();
@@ -551,6 +1324,19 @@ function FlowApp(): React.ReactElement {
     const selectedNode = nodes.find((n) => n.selected);
     const updateSelectedNodeData = (patch: Partial<any>) => {
         if (!selectedNode) return;
+        
+        // Si estamos invirtiendo handles, romper todas las conexiones del elemento
+        if (patch.invertHandles !== undefined) {
+            const nodeId = selectedNode.id;
+            
+            // Eliminar todas las conexiones que involucren este nodo
+            setEdges((currentEdges) => 
+                currentEdges.filter((edge) => 
+                    edge.source !== nodeId && edge.target !== nodeId
+                )
+            );
+        }
+        
         setNodes((nds) => nds.map((n) => (n.id === selectedNode.id ? { ...n, data: { ...n.data, ...(patch) } } : n)));
     };
 
@@ -558,31 +1344,67 @@ function FlowApp(): React.ReactElement {
         <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', position: 'relative' }}>
             <AppBar position="static">
                 <Toolbar variant="dense">
-                    <Typography variant="h6" sx={{ flexGrow: 1 }}>Editor de esquemas — React Flow</Typography>
-                    <IconButton color="inherit" onClick={addNode} title="Agregar nodo">
-                        <AddBoxIcon />
+                    <IconButton color="inherit" onClick={handleNewSchema} title="Nuevo esquema">
+                        <AddIcon />
                     </IconButton>
-                    <IconButton color="inherit" onClick={handleDelete} title="Borrar seleccionado">
-                        <DeleteIcon />
+                    <IconButton color="inherit" onClick={undo} disabled={historyIndex <= 0} title={`Deshacer (Ctrl+Z) - ${historyIndex}/${history.length}`}>
+                        <UndoIcon />
                     </IconButton>
-                            <IconButton color="inherit" onClick={exportDiagram} title="Exportar JSON">
-                                <SaveIcon />
-                            </IconButton>
-                            <IconButton color="inherit" onClick={() => saveToLocal && saveToLocal()} title="Guardar en localStorage">
-                                <SaveIcon />
-                            </IconButton>
-                            <IconButton color="inherit" onClick={() => loadFromLocal && loadFromLocal()} title="Cargar desde localStorage">
-                                <FolderOpenIcon />
-                            </IconButton>
-                    <IconButton color="inherit" onClick={exportPNG} title="Exportar PNG">
-                        <ImageIcon />
+                    <IconButton color="inherit" onClick={redo} disabled={historyIndex >= history.length - 1} title={`Rehacer (Ctrl+Y) - ${historyIndex}/${history.length}`}>
+                        <RedoIcon />
                     </IconButton>
+                    <IconButton color="inherit" onClick={handleSaveButtonClick} title={currentSchemaId ? "Actualizar esquema" : "Guardar esquema"}>
+                        <SaveIcon />
+                    </IconButton>
+                    <IconButton color="inherit" onClick={() => { loadSchemas(); setShowSchemasDialog(true); }} title="Cargar esquema">
+                        <FolderOpenIcon />
+                    </IconButton>
+                    <Typography variant="h6" sx={{ flexGrow: 1, textAlign: 'center' }}>
+                        Editor de esquemas{currentSchemaName ? `: ${currentSchemaName}` : ': Nuevo'}
+                        {lastSaved && (
+                            <Typography variant="caption" display="block" sx={{ fontSize: '0.6rem', opacity: 0.7 }}>
+                                Guardado automáticamente: {lastSaved.toLocaleTimeString()}
+                            </Typography>
+                        )}
+                    </Typography>
+                    <IconButton color="inherit" onClick={copySelectedElements} title="Copiar elementos seleccionados (Ctrl+C)">
+                        <ContentCopyIcon />
+                    </IconButton>
+                    <IconButton color="inherit" onClick={pasteElements} title="Pegar elementos (Ctrl+V)" disabled={!clipboard || clipboard.nodes.length === 0}>
+                        <ContentPasteIcon />
+                    </IconButton>
+                    {!isSelectingExportArea ? (
+                        <>
+                            <IconButton color="inherit" onClick={startAreaSelection} title="Seleccionar área para exportar PNG">
+                                <CropFreeIcon />
+                            </IconButton>
+                        </>
+                    ) : (
+                        <>
+                            <IconButton color="inherit" onClick={exportSelectedAreaPNG} title="Exportar área seleccionada" disabled={!exportArea}>
+                                <CheckIcon />
+                            </IconButton>
+                            <IconButton color="inherit" onClick={cancelAreaSelection} title="Cancelar selección">
+                                <CloseIcon />
+                            </IconButton>
+                        </>
+                    )}
                     <IconButton color="inherit" onClick={exportPDF} title="Exportar PDF">
                         <PictureAsPdfIcon />
                     </IconButton>
                 </Toolbar>
             </AppBar>
-            <Box ref={reactFlowWrapper} style={{ flex: 1 }}>
+            <Box 
+                ref={reactFlowWrapper} 
+                style={{ 
+                    flex: 1, 
+                    position: 'relative',
+                    cursor: isSelectingExportArea ? 'crosshair' : 'default'
+                }}
+                onMouseDown={isSelectingExportArea ? handleCanvasMouseDown : undefined}
+                onMouseMove={isSelectingExportArea ? handleCanvasMouseMove : undefined}
+                onMouseUp={isSelectingExportArea ? handleCanvasMouseUp : undefined}
+            >
                 <ReactFlowProvider>
                     <ReactFlow
                         nodes={nodes}
@@ -592,62 +1414,345 @@ function FlowApp(): React.ReactElement {
                         onConnect={onConnect}
                         onNodeDragStop={onNodeDragStop}
                         snapToGrid={true}
-                        snapGrid={[GRID_SIZE, GRID_SIZE]}
+                        snapGrid={snapGrid}
                         connectionLineType={ConnectionLineType.SmoothStep}
-                        defaultEdgeOptions={{ type: 'smoothstep' }}
-                        nodeTypes={NODE_TYPES}
+                        defaultEdgeOptions={defaultEdgeOptions}
+                        nodeTypes={nodeTypes}
                         onDrop={onDrop}
                         onDragOver={onDragOver}
                         fitView
                         attributionPosition="bottom-left"
+                        connectOnClick={false}
+                        elementsSelectable={!isSelectingExportArea}
+                        panOnDrag={!isSelectingExportArea}
+                        zoomOnScroll={!isSelectingExportArea}
+                        zoomOnPinch={!isSelectingExportArea}
+                        zoomOnDoubleClick={!isSelectingExportArea}
                     >
                         <MiniMap />
                         <Controls />
-                        <Background gap={GRID_SIZE} />
+                        {showBackground && <Background gap={GRID_SIZE} />}
                     </ReactFlow>
                 </ReactFlowProvider>
-            </Box>
-                <Box style={{ position: 'absolute', left: 12, top: 72, width: 160, background: '#f5f5f5', padding: 8, borderRadius: 6, zIndex: 1200 }}>
-                    <strong>Paleta</strong>
-                    <Box style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-                            {Object.keys(SYMBOLS).map((key) => {
-                                const entry = SYMBOLS[key];
-                                const thumbW = Math.min(entry.size?.w ?? 48, 56);
-                                const thumbH = Math.min(entry.size?.h ?? 48, 56);
-                                // If svg is a React element, clone it to force responsive sizing
-                                let thumb: React.ReactNode = entry.svg;
-                                if (React.isValidElement(entry.svg) && typeof entry.svg.type === 'string') {
-                                    // clone SVG element and override width/height to fill container
-                                    thumb = React.cloneElement(entry.svg as React.ReactElement, ({ width: '100%', height: '100%', preserveAspectRatio: 'xMidYMid meet' } as any));
-                                }
-                                return (
-                                <Box key={key} draggable onDragStart={(e) => onDragStart(e, key)} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'grab', padding: 6, border: '1px solid #ddd', borderRadius: 4, background: '#fff' }}>
-                                    <Box style={{ width: thumbW, height: thumbH, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{thumb}</Box>
-                                    <Box style={{ fontSize: 12 }}>{key}</Box>
-                                </Box>
-                                );
-                            })}
+                
+                {/* Overlay para mostrar el área de selección */}
+                {isSelectingExportArea && exportArea && (
+                    <Box
+                        style={{
+                            position: 'absolute',
+                            left: exportArea.x,
+                            top: exportArea.y,
+                            width: exportArea.width,
+                            height: exportArea.height,
+                            border: '2px dashed #2196f3',
+                            backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                            pointerEvents: 'none',
+                            zIndex: 1000
+                        }}
+                    />
+                )}
+                
+                {/* Instrucciones para la selección de área */}
+                {isSelectingExportArea && (
+                    <Box
+                        style={{
+                            position: 'absolute',
+                            top: '50%',
+                            left: '50%',
+                            transform: 'translate(-50%, -50%)',
+                            background: 'rgba(0, 0, 0, 0.8)',
+                            color: 'white',
+                            padding: '16px',
+                            borderRadius: '8px',
+                            textAlign: 'center',
+                            zIndex: 1001,
+                            pointerEvents: 'none'
+                        }}
+                    >
+                        <Typography variant="h6" style={{ marginBottom: '8px' }}>
+                            Seleccionar área para exportar
+                        </Typography>
+                        <Typography variant="body2">
+                            Arrastra para dibujar un rectángulo sobre el área que quieres exportar
+                        </Typography>
                     </Box>
+                )}
+            </Box>
+            <Box style={{ position: 'absolute', left: 12, top: 72, width: 160, background: '#f5f5f5', padding: 8, borderRadius: 6, zIndex: 1200 }}>
+                <Typography variant="h6" style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
+                    Paleta
+                </Typography>
+                <Box style={{ marginTop: 8 }}>
+                    {Object.entries(SYMBOL_CATEGORIES).map(([categoryKey, category]) => (
+                        <Accordion key={categoryKey} defaultExpanded={false} style={{ marginBottom: 8 }}>
+                            <AccordionSummary
+                                expandIcon={<ExpandMoreIcon />}
+                                style={{
+                                    padding: '4px 8px',
+                                    minHeight: '32px'
+                                }}
+                            >
+                                <Box style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <Box style={{ width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        {category.icon}
+                                    </Box>
+                                    <Typography variant="body2" style={{ fontSize: 12, fontWeight: 600 }}>
+                                        {category.name}
+                                    </Typography>
+                                </Box>
+                            </AccordionSummary>
+                            <AccordionDetails style={{ padding: '8px 0' }}>
+                                <Box style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                    {Object.entries(category.symbols).map(([symbolKey, entry]) => {
+                                        const thumbW = Math.min(entry.size?.w ?? 48, 56);
+                                        const thumbH = Math.min(entry.size?.h ?? 48, 56);
+
+                                        // If svg is a React element, clone it to force responsive sizing
+                                        let thumb: React.ReactNode = entry.svg;
+                                        if (React.isValidElement(entry.svg) && typeof entry.svg.type === 'string') {
+                                            thumb = React.cloneElement(entry.svg as React.ReactElement, ({
+                                                width: '100%',
+                                                height: '100%',
+                                                preserveAspectRatio: 'xMidYMid meet'
+                                            } as any));
+                                        }
+
+                                        return (
+                                            <Box
+                                                key={symbolKey}
+                                                draggable
+                                                onDragStart={(e) => onDragStart(e, symbolKey)}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: 6,
+                                                    cursor: 'grab',
+                                                    padding: 4,
+                                                    border: '1px solid #ddd',
+                                                    borderRadius: 4,
+                                                    background: '#fff'
+                                                }}
+                                            >
+                                                <Box style={{
+                                                    width: thumbW,
+                                                    height: thumbH,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center'
+                                                }}>
+                                                    {thumb}
+                                                </Box>
+                                                <Box style={{ fontSize: 10 }}>{symbolKey}</Box>
+                                            </Box>
+                                        );
+                                    })}
+                                </Box>
+                            </AccordionDetails>
+                        </Accordion>
+                    ))}
                 </Box>
-                {selectedNode ? (
-                    <Box style={{ position: 'absolute', right: 12, top: 72, padding: 8, background: '#fff', border: '1px solid #ddd', borderRadius: 6, zIndex: 1300 }}>
-                        <div style={{ fontWeight: 600, marginBottom: 6 }}>Edición</div>
-                        <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-                            <button onClick={() => updateSelectedNodeData({ rotation: (selectedNode.data?.rotation ?? 0) - 90 })}>⤺ 90°</button>
-                            <button onClick={() => updateSelectedNodeData({ rotation: (selectedNode.data?.rotation ?? 0) + 90 })}>90° ⤻</button>
-                            <button onClick={() => updateSelectedNodeData({ flipX: !(selectedNode.data?.flipX ?? false) })}>↔ Flip X</button>
-                            <button onClick={() => updateSelectedNodeData({ flipY: !(selectedNode.data?.flipY ?? false) })}>↕ Flip Y</button>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                            <label style={{ fontSize: 12 }}>Escala (num)</label>
-                            <input type="number" min="0.5" max="2" step="0.05" value={(selectedNode.data?.scale ?? 1)} style={{ width: 100 }} onChange={(e) => {
+            </Box>
+            {selectedNode ? (
+                <Box style={{ position: 'absolute', right: 12, top: 72, padding: 8, background: '#fff', border: '1px solid #ddd', borderRadius: 6, zIndex: 1300 }}>
+                    <Typography variant="h6" style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, textAlign: 'center' }}>
+                        Edición
+                    </Typography>
+                    <Box style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                        <Button 
+                            variant="outlined" 
+                            size="small" 
+                            fullWidth
+                            startIcon={<RotateLeftIcon />}
+                            onClick={() => updateSelectedNodeData({ rotation: (selectedNode.data?.rotation ?? 0) - 90 })}
+                        >
+                            90°
+                        </Button>
+                        <Button 
+                            variant="outlined" 
+                            size="small" 
+                            fullWidth
+                            startIcon={<RotateRightIcon />}
+                            onClick={() => updateSelectedNodeData({ rotation: (selectedNode.data?.rotation ?? 0) + 90 })}
+                        >
+                            90°
+                        </Button>
+                    </Box>
+                    <Box style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                        <Button 
+                            variant="outlined" 
+                            size="small" 
+                            fullWidth
+                            startIcon={<FlipIcon />}
+                            onClick={() => updateSelectedNodeData({ flipX: !(selectedNode.data?.flipX ?? false) })}
+                        >
+                            Flip X
+                        </Button>
+                        <Button 
+                            variant="outlined" 
+                            size="small" 
+                            fullWidth
+                            startIcon={<FlipIcon style={{ transform: 'rotate(90deg)' }} />}
+                            onClick={() => updateSelectedNodeData({ flipY: !(selectedNode.data?.flipY ?? false) })}
+                        >
+                            Flip Y
+                        </Button>
+                    </Box>
+                    <Box style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 8 }}>
+                        <TextField
+                            type="number"
+                            size="small"
+                            slotProps={{
+                                htmlInput: {
+                                    min: 0.5,
+                                    max: 2,
+                                    step: 0.05
+                                }
+                            }}
+                            fullWidth
+                            label="Escala"
+                            value={selectedNode.data?.scale ?? 1}
+                            onChange={(e) => {
                                 const v = Number(e.target.value);
                                 if (isNaN(v)) return;
                                 updateSelectedNodeData({ scale: v });
-                            }} />
-                        </div>
+                            }}
+                        />
                     </Box>
-                ) : null}
+                    <Box style={{ display: 'flex', justifyContent: 'center' }}>
+                        <Button 
+                            variant="contained" 
+                            size="small" 
+                            startIcon={<SwapHorizIcon />}
+                            onClick={() => updateSelectedNodeData({ invertHandles: !(selectedNode.data?.invertHandles ?? false) })}
+                        >
+                            Invertir handles
+                        </Button>
+                    </Box>
+                </Box>
+            ) : null}
+
+            {/* Diálogo de confirmación para nuevo esquema */}
+            <Dialog open={showNewSchemaConfirm} onClose={cancelNewSchema} maxWidth="sm">
+                <DialogTitle>Crear Nuevo Esquema</DialogTitle>
+                <DialogContent>
+                    <Typography>
+                        ¿Estás seguro de que quieres crear un nuevo esquema? Se perderán todos los cambios no guardados.
+                    </Typography>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={cancelNewSchema}>Cancelar</Button>
+                    <Button onClick={confirmNewSchema} variant="contained" color="error">
+                        Crear Nuevo
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Diálogo para guardar esquema */}
+            <Dialog open={showSaveDialog} onClose={() => setShowSaveDialog(false)} maxWidth="sm" fullWidth>
+                <DialogTitle>Guardar Esquema</DialogTitle>
+                <DialogContent>
+                    <TextField
+                        autoFocus
+                        margin="dense"
+                        label="Nombre del esquema"
+                        fullWidth
+                        variant="outlined"
+                        value={schemaName}
+                        onChange={(e) => setSchemaName(e.target.value)}
+                        //sx={{ mb: 2 }}
+                        slotProps={{ inputLabel: { shrink: true } }}
+                    />
+                    <TextField
+                        margin="dense"
+                        label="Descripción (opcional)"
+                        fullWidth
+                        variant="outlined"
+                        multiline
+                        rows={3}
+                        value={schemaDescription}
+                        onChange={(e) => setSchemaDescription(e.target.value)}
+                        //sx={{ mb: 2 }}
+                        slotProps={{ inputLabel: { shrink: true } }}
+                    />
+                    <FormControlLabel
+                        control={
+                            <Checkbox
+                                checked={isTemplate}
+                                onChange={(e) => setIsTemplate(e.target.checked)}
+                            />
+                        }
+                        label="Guardar como plantilla"
+                    />
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setShowSaveDialog(false)}>Cancelar</Button>
+                    <Button onClick={handleSaveSchema} variant="contained">
+                        {currentSchemaId ? 'Actualizar' : 'Guardar'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Diálogo para cargar esquemas */}
+            <Dialog open={showSchemasDialog} onClose={() => setShowSchemasDialog(false)} maxWidth="md" fullWidth>
+                <DialogTitle>Esquemas Guardados</DialogTitle>
+                <DialogContent>
+                    <List>
+                        {schemas.map((schema) => (
+                            <ListItem key={schema.id}>
+                                <ListItemText
+                                    primary={schema.name}
+                                    secondary={`${schema.description ? schema.description + ' • ' : ''}Actualizado: ${new Date(schema.updated_at || '').toLocaleString()}`}
+                                    secondaryTypographyProps={{
+                                        component: 'span',
+                                        style: { whiteSpace: 'pre-line' }
+                                    }}
+                                />
+                                <ListItemSecondaryAction>
+                                    <IconButton
+                                        edge="end"
+                                        onClick={() => handleLoadSchema(schema)}
+                                        title="Cargar esquema (reemplaza actual)"
+                                        sx={{ mr: 1 }}
+                                    >
+                                        <EditIcon />
+                                    </IconButton>
+                                    <IconButton
+                                        edge="end"
+                                        onClick={() => handleImportSchema(schema)}
+                                        title="Importar elementos al esquema actual"
+                                        sx={{ mr: 1 }}
+                                    >
+                                        <MergeTypeIcon />
+                                    </IconButton>
+                                    <IconButton
+                                        edge="end"
+                                        onClick={() => handleDuplicateSchema(schema.id!, schema.name)}
+                                        title="Duplicar esquema"
+                                        sx={{ mr: 1 }}
+                                    >
+                                        <ContentCopyIcon />
+                                    </IconButton>
+                                    <IconButton
+                                        edge="end"
+                                        onClick={() => handleDeleteSchema(schema.id!, schema.name)}
+                                        title="Eliminar esquema"
+                                    >
+                                        <DeleteIcon />
+                                    </IconButton>
+                                </ListItemSecondaryAction>
+                            </ListItem>
+                        ))}
+                        {schemas.length === 0 && (
+                            <ListItem>
+                                <ListItemText primary="No hay esquemas guardados" />
+                            </ListItem>
+                        )}
+                    </List>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setShowSchemasDialog(false)}>Cerrar</Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 }
