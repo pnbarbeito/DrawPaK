@@ -1,18 +1,174 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Handle, Position, useUpdateNodeInternals } from 'reactflow';
 import SYMBOLS, { SymbolEntry } from './symbols';
 
 type SymbolNodeProps = {
   id: string;
-  data: { symbolKey: string; rotation?: number; scale?: number; flipX?: boolean; flipY?: boolean; invertHandles?: boolean };
+  data: { 
+    symbolKey: string; 
+    rotation?: number; 
+    scale?: number; 
+    flipX?: boolean; 
+    flipY?: boolean; 
+    invertHandles?: boolean;
+    isDynamicSvg?: boolean;
+    svg?: string;
+    handles?: string;
+  };
   selected?: boolean;
 };
 
 const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
-  const { symbolKey } = data;
-  const entry = (SYMBOLS as Record<string, SymbolEntry | undefined>)[symbolKey];
-  const symbol = entry?.svg ?? null;
-  const size = entry?.size ?? { w: 48, h: 48 };
+  const { symbolKey, isDynamicSvg, svg: dynamicSvg, handles: dynamicHandles } = data;
+  
+  // Estado local para preservar los datos del SVG
+  const [preservedSvgData, setPreservedSvgData] = React.useState<{svg?: string, handles?: string} | null>(null);
+  
+  // Cuando recibimos datos válidos por primera vez, los preservamos
+  React.useEffect(() => {
+    if (isDynamicSvg && dynamicSvg && dynamicHandles && !preservedSvgData) {
+      setPreservedSvgData({ svg: dynamicSvg, handles: dynamicHandles });
+      console.log(`💾 Preserving SVG data for ${id}:`, { svgLength: dynamicSvg.length });
+    }
+  }, [isDynamicSvg, dynamicSvg, dynamicHandles, preservedSvgData, id]);
+  
+  // Usar datos preservados como respaldo
+  const effectiveSvg = dynamicSvg || preservedSvgData?.svg;
+  const effectiveHandles = dynamicHandles || preservedSvgData?.handles;
+  
+  // Debug logging detallado
+  console.log(`🔍 SymbolNode ${id} render:`, {
+    symbolKey,
+    isDynamicSvg,
+    hasDynamicSvg: !!dynamicSvg,
+    hasEffectiveSvg: !!effectiveSvg,
+    svgLength: effectiveSvg?.length,
+    hasDynamicHandles: !!dynamicHandles,
+    hasEffectiveHandles: !!effectiveHandles,
+    hasPreservedData: !!preservedSvgData,
+    allDataKeys: Object.keys(data)
+  });
+  
+  // Si tenemos un elemento SVG dinámico, usarlo; sino, usar el símbolo estático
+  let entry: SymbolEntry | undefined;
+  let symbol: React.ReactNode = null;
+  let size = { w: 48, h: 48 };
+  let inlineSvgMarkup: string | undefined;
+
+  if (isDynamicSvg && effectiveSvg) {
+    // Elemento SVG dinámico de la base de datos (usando datos efectivos)
+    inlineSvgMarkup = effectiveSvg;
+    
+    // Extraer tamaño del viewBox del SVG
+    const viewBoxMatch = effectiveSvg.match(/viewBox="([^"]+)"/);
+    if (viewBoxMatch) {
+      const viewBoxValues = viewBoxMatch[1].split(' ').map(Number);
+      if (viewBoxValues.length === 4) {
+        size = { w: viewBoxValues[2], h: viewBoxValues[3] };
+      }
+    }
+  } else if (isDynamicSvg && !effectiveSvg) {
+    // PROBLEMA: Se esperaba SVG dinámico pero no está presente
+    console.error(`❌ PROBLEMA ENCONTRADO - Node ${id}: isDynamicSvg=true pero no hay svg en data ni preservado`, {
+      dataKeys: Object.keys(data),
+      hasPreservedData: !!preservedSvgData,
+      fullData: data
+    });
+  } else {
+    // Símbolo estático del catálogo existente
+    entry = (SYMBOLS as Record<string, SymbolEntry | undefined>)[symbolKey];
+    symbol = entry?.svg ?? null;
+    
+    // If node data provides size (from inserted custom SVG), prefer it
+    const providedSize = (data as any).size as { w: number; h: number } | undefined;
+    size = providedSize ?? entry?.size ?? { w: 48, h: 48 };
+    
+    // If node provides inline svg markup in data.svg, prefer it
+    inlineSvgMarkup = (data as any).svg;
+  }
+
+  const inlineWrapperRef = useRef<HTMLDivElement | null>(null);
+  
+  // Usar React.memo para memorizar el SVG y evitar pérdida de datos
+  const renderedSymbol = React.useMemo(() => {
+    console.log(`🧠 useMemo triggered for ${id}:`, { 
+      hasInlineSvg: !!inlineSvgMarkup, 
+      hasSymbol: !!symbol,
+      symbolKey,
+      svgPreview: inlineSvgMarkup ? inlineSvgMarkup.substring(0, 100) + '...' : 'none'
+    });
+    
+    if (inlineSvgMarkup) {
+      return (
+        <div
+          key={`svg-${id}`}
+          ref={inlineWrapperRef}
+          style={{ 
+            width: '100%', 
+            height: '100%', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center'
+          }}
+          dangerouslySetInnerHTML={{ __html: inlineSvgMarkup }}
+        />
+      );
+    }
+    
+    if (symbol) {
+      return symbol;
+    }
+    
+    return (
+      <div style={{ 
+        width: '100%', 
+        height: '100%', 
+        backgroundColor: '#f0f0f0', 
+        border: '2px dashed #ccc',
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        fontSize: '10px',
+        color: '#666'
+      }}>
+        {symbolKey || 'ERROR'}
+      </div>
+    );
+  }, [inlineSvgMarkup, symbol, symbolKey, id]);
+
+  // Normalize inline SVG so it fits the container: ensure viewBox exists (if possible), remove fixed width/height, and force CSS width/height 100%
+  useEffect(() => {
+    if (!inlineWrapperRef.current) return;
+    const svgEl = inlineWrapperRef.current.querySelector('svg') as SVGSVGElement | null;
+    if (!svgEl) return;
+
+    try {
+      // If no viewBox but width/height attributes exist, set viewBox from them
+      const hasViewBox = !!svgEl.getAttribute('viewBox');
+      const attrW = svgEl.getAttribute('width');
+      const attrH = svgEl.getAttribute('height');
+      if (!hasViewBox && attrW && attrH) {
+        const parsedW = parseFloat(attrW);
+        const parsedH = parseFloat(attrH);
+        if (!isNaN(parsedW) && !isNaN(parsedH) && parsedW > 0 && parsedH > 0) {
+          svgEl.setAttribute('viewBox', `0 0 ${parsedW} ${parsedH}`);
+        }
+      }
+
+  // Set explicit width/height attributes to match the wrapper so the SVG keeps stable intrinsic size
+  svgEl.setAttribute('width', String(size.w));
+  svgEl.setAttribute('height', String(size.h));
+
+  // Ensure it visually fills the wrapper
+  svgEl.style.width = '100%';
+  svgEl.style.height = '100%';
+      svgEl.style.display = 'block';
+      if (!svgEl.getAttribute('preserveAspectRatio')) svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    } catch (e) {
+      // swallow DOM errors
+      // console.warn('Failed to normalize inline svg', e);
+    }
+  }, [inlineSvgMarkup, size.w, size.h]);
   const rotation = data.rotation ?? 0;
   const scale = data.scale ?? 1;
   const flipX = data.flipX ?? false;
@@ -30,39 +186,85 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
   // Define connection points per symbol type
   // now supports an optional `offset` (px number or percentage string) to precisely position multiple handles on the same side
   const handles: { id: string; position: Position; type: 'source' | 'target'; offset?: number | string }[] = [];
-  switch (symbolKey) {
-    case 'bus':
-      handles.push({ id: 'left', position: Position.Left, type: 'source' });
-      handles.push({ id: 'right', position: Position.Right, type: 'source' });
-      break;
-    case 'trafo':
-      handles.push({ id: 'top', position: Position.Top, type: 'source' });
-      handles.push({ id: 'bottom', position: Position.Bottom, type: 'target' });
-      break;
-    case 'trafo_2':
-      handles.push({ id: 'top', position: Position.Top, type: 'source' });
-      handles.push({ id: 'left', position: Position.Left, type: 'target' });
-      handles.push({ id: 'right', position: Position.Right, type: 'target' });
-      break;
-    case 'interruptor':
-      handles.push({ id: 'left', position: Position.Left, type: 'source' });
-      handles.push({ id: 'right', position: Position.Right, type: 'target' });
-      break;
-    case 'barras':
-      handles.push({ id: 'r_top', position: Position.Right, type: 'target', offset: '20%' });
-      handles.push({ id: 'r_bottom', position: Position.Right, type: 'target', offset: '80%' });
-      handles.push({ id: 't_left', position: Position.Top, type: 'source', offset: '20%' });
-      handles.push({ id: 't_right', position: Position.Top, type: 'source', offset: '40%' });
-      handles.push({ id: 'b_left', position: Position.Bottom, type: 'target', offset: '20%' });
-      handles.push({ id: 'b_right', position: Position.Bottom, type: 'target', offset: '40%' });
-      break;
-    case 'disconnector':
-      handles.push({ id: 'left', position: Position.Left, type: 'source' });
-      handles.push({ id: 'right', position: Position.Right, type: 'source' });
-      break;
-    case 'tierra':
-      handles.push({ id: 'top', position: Position.Top, type: 'source' });
-      break;
+  
+  // Si tenemos un elemento SVG dinámico con handles guardados, usarlos
+  if (isDynamicSvg && effectiveHandles) {
+    try {
+      const parsed = JSON.parse(effectiveHandles || '[]');
+      const parsedHandles = Array.isArray(parsed)
+        ? parsed
+        : (parsed && typeof parsed === 'object')
+          ? Object.values(parsed)
+          : [];
+
+      parsedHandles.forEach((handle: any) => {
+        const x = Number(handle.x) || 0;
+        const y = Number(handle.y) || 0;
+        // clamp inside viewBox
+        const cx = Math.max(0, Math.min(x, size.w));
+        const cy = Math.max(0, Math.min(y, size.h));
+
+        // Distancia a cada borde
+        const distLeft = cx;
+        const distRight = size.w - cx;
+        const distTop = cy;
+        const distBottom = size.h - cy;
+
+        const min = Math.min(distLeft, distRight, distTop, distBottom);
+        let position: Position;
+        if (min === distLeft) position = Position.Left;
+        else if (min === distRight) position = Position.Right;
+        else if (min === distTop) position = Position.Top;
+        else position = Position.Bottom;
+
+        const offset = (position === Position.Left || position === Position.Right) ? cy : cx;
+
+        handles.push({
+          id: handle.id,
+          position,
+          type: handle.type || 'source',
+          offset
+        });
+      });
+    } catch (e) {
+      console.warn('Error parsing dynamic handles:', e);
+    }
+  } else {
+    // Usar handles estáticos para símbolos del catálogo existente
+    switch (symbolKey) {
+      case 'bus':
+        handles.push({ id: 'left', position: Position.Left, type: 'source' });
+        handles.push({ id: 'right', position: Position.Right, type: 'source' });
+        break;
+      case 'trafo':
+        handles.push({ id: 'top', position: Position.Top, type: 'source' });
+        handles.push({ id: 'bottom', position: Position.Bottom, type: 'target' });
+        break;
+      case 'trafo_2':
+        handles.push({ id: 'top', position: Position.Top, type: 'source' });
+        handles.push({ id: 'left', position: Position.Left, type: 'target' });
+        handles.push({ id: 'right', position: Position.Right, type: 'target' });
+        break;
+      case 'interruptor':
+        handles.push({ id: 'left', position: Position.Left, type: 'source' });
+        handles.push({ id: 'right', position: Position.Right, type: 'target' });
+        break;
+      case 'barras':
+        handles.push({ id: 'r_top', position: Position.Right, type: 'target', offset: '20%' });
+        handles.push({ id: 'r_bottom', position: Position.Right, type: 'target', offset: '80%' });
+        handles.push({ id: 't_left', position: Position.Top, type: 'source', offset: '20%' });
+        handles.push({ id: 't_right', position: Position.Top, type: 'source', offset: '40%' });
+        handles.push({ id: 'b_left', position: Position.Bottom, type: 'target', offset: '20%' });
+        handles.push({ id: 'b_right', position: Position.Bottom, type: 'target', offset: '40%' });
+        break;
+      case 'disconnector':
+        handles.push({ id: 'left', position: Position.Left, type: 'source' });
+        handles.push({ id: 'right', position: Position.Right, type: 'source' });
+        break;
+      case 'tierra':
+        handles.push({ id: 'top', position: Position.Top, type: 'source' });
+        break;
+    }
   }
 
   // Grid alignment constant (should match App.tsx GRID_SIZE)
@@ -155,11 +357,9 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
         flexDirection: 'column',
         alignItems: 'center',
         gap: 4,
-        // Keep the container size fixed to original size
+        // Keep the container size fixed to original size (px values)
         width: size.w,
         height: size.h,
-        // apply uniform positive scale to the wrapper; rotation will be applied to the inner symbol
-        transform: `scale(${scale})`,
         transformOrigin: 'center center',
         padding: 0,
       }}
@@ -270,8 +470,8 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          // apply rotation and flip to the inner symbol so the visual rotates but handles remain in wrapper coordinates
-          transform: `rotate(${rotation}deg) scaleX(${flipX ? -1 : 1}) scaleY(${flipY ? -1 : 1})`,
+          // apply rotation, scale and flip to the inner symbol so the visual rotates/scales but handles remain in wrapper coordinates
+          transform: `rotate(${rotation}deg) scale(${scale}) scaleX(${flipX ? -1 : 1}) scaleY(${flipY ? -1 : 1})`,
           transformOrigin: 'center center',
           // Add dotted border when selected (now it rotates with the symbol)
           border: selected ? '2px dashed #0078d4' : 'none',
@@ -279,7 +479,7 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
           boxSizing: 'border-box',
         }}
       >
-        {symbol}
+  {renderedSymbol}
       </div>
     </div>
   );

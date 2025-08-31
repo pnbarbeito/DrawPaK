@@ -13,9 +13,10 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import './App.css';
-import { SYMBOL_CATEGORIES } from './components/symbols';
+import DynamicPalette from './components/DynamicPalette';
 import { nodeTypes, defaultEdgeOptions, snapGrid } from './reactFlowConfig';
-import { initDatabase, saveSchema, getAllSchemas, deleteSchema, duplicateSchema, updateSchema, Schema } from './database';
+import { initDatabase, saveSchema, getAllSchemas, deleteSchema, duplicateSchema, updateSchema, Schema, saveSvgElement, getAllSvgElements, deleteSvgElement, SvgElement, getSvgCategories } from './database';
+import SvgEditorDialog from './components/SvgEditorDialog';
 import { toPng } from 'html-to-image';
 import jsPDF from 'jspdf';
 // Tauri APIs (optional)
@@ -36,13 +37,12 @@ const tryLoadTauri = async () => {
 };
 // kick off load attempt
 tryLoadTauri();
-import { Box, AppBar, Toolbar, IconButton, Typography, Accordion, AccordionSummary, AccordionDetails, Button, TextField, Dialog, DialogTitle, DialogContent, DialogActions, List, ListItem, ListItemText, ListItemSecondaryAction, Checkbox, FormControlLabel } from '@mui/material';
+import { Box, AppBar, Toolbar, IconButton, Typography, Button, TextField, Dialog, DialogTitle, DialogContent, DialogActions, List, ListItem, ListItemText, ListItemSecondaryAction, Checkbox, FormControlLabel } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import AddIcon from '@mui/icons-material/Add';
 import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import RotateLeftIcon from '@mui/icons-material/RotateLeft';
 import RotateRightIcon from '@mui/icons-material/RotateRight';
 import FlipIcon from '@mui/icons-material/Flip';
@@ -128,7 +128,18 @@ function findFreePosition(
 
 function FlowApp(): React.ReactElement {
     // Tipado específico para los datos de nodo/edge en esta app
-    type ElectNodeData = { label: string; rotation?: number; scale?: number; flipX?: boolean; flipY?: boolean; invertHandles?: boolean };
+    type ElectNodeData = { 
+        label: string; 
+        rotation?: number; 
+        scale?: number; 
+        flipX?: boolean; 
+        flipY?: boolean; 
+        invertHandles?: boolean;
+        symbolKey?: string;
+        isDynamicSvg?: boolean;
+        svg?: string;
+        handles?: string;
+    };
     type ElectEdgeData = Record<string, unknown>;
 
     const reactFlowWrapper = useRef<HTMLDivElement | null>(null);
@@ -153,6 +164,36 @@ function FlowApp(): React.ReactElement {
     
     // Estado para gestión de esquemas
     const [showSchemasDialog, setShowSchemasDialog] = React.useState(false);
+    const [showSvgDialog, setShowSvgDialog] = React.useState(false);
+    const [svgElements, setSvgElements] = React.useState<SvgElement[]>([]);
+    const [svgCategories, setSvgCategories] = React.useState<string[]>([]);
+    const [svgName, setSvgName] = React.useState('');
+    const [svgDescription, setSvgDescription] = React.useState('');
+    const [svgCategory, setSvgCategory] = React.useState('custom');
+    const [svgMarkup, setSvgMarkup] = React.useState('');
+    const [svgHandles, setSvgHandles] = React.useState('');
+    const [sanitizedSvg, setSanitizedSvg] = React.useState('');
+    const [useEditor, setUseEditor] = React.useState(true);
+
+    React.useEffect(() => {
+        let mounted = true;
+        (async () => {
+            if (!svgMarkup) {
+                if (mounted) setSanitizedSvg('');
+                return;
+            }
+            try {
+                const DOMPurifyModule = await import('dompurify');
+                const DOMPurify = (DOMPurifyModule && (DOMPurifyModule as any).default) || DOMPurifyModule;
+                const safe = DOMPurify.sanitize(svgMarkup, { USE_PROFILES: { svg: true } });
+                if (mounted) setSanitizedSvg(safe);
+            } catch (e) {
+                console.warn('dompurify not available, using raw svg markup for preview', e);
+                if (mounted) setSanitizedSvg(svgMarkup);
+            }
+        })();
+        return () => { mounted = false; };
+    }, [svgMarkup]);
     const [showSaveDialog, setShowSaveDialog] = React.useState(false);
     const [schemas, setSchemas] = React.useState<Schema[]>([]);
     const [schemaName, setSchemaName] = React.useState('');
@@ -169,6 +210,34 @@ function FlowApp(): React.ReactElement {
             console.error('Error inicializando la base de datos:', error);
         });
     }, []);
+
+    // cargar elementos svg guardados
+    const loadSvgElements = useCallback(async () => {
+        try {
+            const elems = await getAllSvgElements();
+            setSvgElements(elems);
+        } catch (e) {
+            console.error('Error cargando svg elements', e);
+        }
+    }, []);
+
+    // cargar categorías disponibles
+    const loadSvgCategories = useCallback(async () => {
+        try {
+            const categories = await getSvgCategories();
+            setSvgCategories(categories);
+        } catch (e) {
+            console.error('Error cargando categorías', e);
+        }
+    }, []);
+
+    // Usamos el editor interno SvgShapeEditor en lugar de cargar librerías externas
+    React.useEffect(() => {
+        if (showSvgDialog) {
+            // aseguramos que el toggle de uso de editor gráfico esté activo por defecto
+            setUseEditor(true);
+        }
+    }, [showSvgDialog]);
 
     // Funciones para manejar esquemas
     const loadSchemas = useCallback(async () => {
@@ -227,6 +296,49 @@ function FlowApp(): React.ReactElement {
             alert('Error al guardar el esquema');
         }
     }, [schemaName, schemaDescription, nodes, edges, isTemplate, loadSchemas, currentSchemaId, setCurrentSchemaId]);
+
+    // Guardar elemento SVG en DB
+    const handleSaveSvgElement = useCallback(async () => {
+        try {
+            if (!svgName.trim()) {
+                alert('Ingresa un nombre para el elemento SVG');
+                return;
+            }
+
+            // Sanitizar markup antes de guardar
+            // dompurify se importará dinámicamente para evitar problemas en build web
+            let DOMPurify: any = null;
+            try {
+                DOMPurify = (await import('dompurify')).default;
+            } catch (e) {
+                // fallback: no sanitizar (en entornos controlados esto no debería pasar)
+                console.warn('dompurify no disponible, guardando sin sanitizar');
+            }
+
+            const sanitized = DOMPurify ? DOMPurify.sanitize(svgMarkup, { USE_PROFILES: { svg: true } }) : svgMarkup;
+
+            const elem: SvgElement = {
+                name: svgName,
+                description: svgDescription,
+                category: svgCategory,
+                svg: sanitized,
+                handles: svgHandles || ''
+            };
+
+            await saveSvgElement(elem);
+            setShowSvgDialog(false);
+            setSvgName('');
+            setSvgDescription('');
+            setSvgCategory('custom');
+            setSvgMarkup('');
+            setSvgHandles('');
+            await loadSvgElements();
+            alert('Elemento SVG guardado correctamente');
+        } catch (e) {
+            console.error('Error guardando svg element', e);
+            alert('Error guardando elemento SVG');
+        }
+    }, [svgName, svgDescription, svgMarkup, svgHandles, loadSvgElements]);
 
     // Función para manejar el clic del botón guardar
     const handleSaveButtonClick = useCallback(() => {
@@ -771,33 +883,50 @@ function FlowApp(): React.ReactElement {
 
     useEffect(() => {
         const onKeyDown = (event: KeyboardEvent) => {
-            // Delete or Backspace
-            if (event.key === 'Delete' || event.key === 'Backspace') {
+            // If focus is inside an editable field, don't intercept Delete/Backspace so the user can edit text
+            const active = document.activeElement as HTMLElement | null;
+            const isEditable = active && (
+                active.tagName === 'INPUT' ||
+                active.tagName === 'TEXTAREA' ||
+                active.isContentEditable
+            );
+
+            // Delete or Backspace -> only when not editing text
+            if (!isEditable && (event.key === 'Delete' || event.key === 'Backspace')) {
                 // Prevent navigation on Backspace
                 event.preventDefault();
                 handleDelete();
+                return;
             }
-            // Ctrl+C para copiar
-            else if (event.ctrlKey && event.key === 'c') {
+
+            // Ctrl+C para copiar -> if not editing
+            if (!isEditable && event.ctrlKey && event.key === 'c') {
                 event.preventDefault();
                 copySelectedElements();
+                return;
             }
-            // Ctrl+V para pegar
-            else if (event.ctrlKey && event.key === 'v') {
+
+            // Ctrl+V para pegar -> if not editing
+            if (!isEditable && event.ctrlKey && event.key === 'v') {
                 event.preventDefault();
                 pasteElements();
+                return;
             }
         };
 
-        window.addEventListener('keydown', onKeyDown);
-        return () => window.removeEventListener('keydown', onKeyDown);
+        // use capture phase so other layers (like ReactFlow) don't stop the event before we see it
+        window.addEventListener('keydown', onKeyDown, true);
+        return () => window.removeEventListener('keydown', onKeyDown, true);
     }, [handleDelete, copySelectedElements, pasteElements]);
 
 
 
     // Drag handlers for palette items
-    const onDragStart = (event: React.DragEvent, symbolKey: string) => {
+    const onDragStart = (event: React.DragEvent, symbolKey: string, svgElement?: SvgElement) => {
         event.dataTransfer.setData('application/reactflow', symbolKey);
+        if (svgElement) {
+            event.dataTransfer.setData('application/svgelement', JSON.stringify(svgElement));
+        }
         event.dataTransfer.effectAllowed = 'move';
     };
 
@@ -809,6 +938,26 @@ function FlowApp(): React.ReactElement {
             const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
             const symbolKey = event.dataTransfer.getData('application/reactflow');
             if (!symbolKey) return;
+
+            const svgElementData = event.dataTransfer.getData('application/svgelement');
+            let svgElement: SvgElement | null = null;
+            
+            console.log('🎯 onDrop received:', { symbolKey, svgElementData: !!svgElementData });
+            
+            try {
+                if (svgElementData) {
+                    svgElement = JSON.parse(svgElementData);
+                    console.log('📦 Parsed svgElement:', {
+                        id: svgElement?.id,
+                        name: svgElement?.name,
+                        hasSvg: !!svgElement?.svg,
+                        svgLength: svgElement?.svg?.length,
+                        hasHandles: !!svgElement?.handles
+                    });
+                }
+            } catch (e) {
+                console.warn('Error parsing SVG element data:', e);
+            }
 
             const desiredPosition = {
                 x: event.clientX - reactFlowBounds.left,
@@ -822,9 +971,28 @@ function FlowApp(): React.ReactElement {
                 id: getId(),
                 position,
                 type: 'symbolNode',
-                data: { symbolKey, label: symbolKey },
+                data: svgElement ? {
+                    symbolKey,
+                    label: svgElement.name,
+                    svg: svgElement.svg,
+                    handles: svgElement.handles,
+                    isDynamicSvg: true
+                } : {
+                    symbolKey,
+                    label: symbolKey,
+                    isDynamicSvg: false
+                },
             };
 
+            console.log('✨ Creating new node:', {
+                id: newNode.id,
+                type: newNode.type,
+                dataKeys: Object.keys(newNode.data),
+                isDynamicSvg: newNode.data.isDynamicSvg,
+                hasSvg: !!newNode.data.svg,
+                svgLength: newNode.data.svg?.length
+            });
+            
             setNodes((nds) => nds.concat(newNode));
         },
         [setNodes, nodes],
@@ -999,6 +1167,8 @@ function FlowApp(): React.ReactElement {
         for (let i = 0; i < len; i++) arr[i] = binary.charCodeAt(i);
         return arr;
     };
+
+    // SavedSvgPreview moved into SvgEditorDialog
 
     // Capture only the React Flow viewport by cloning it into an offscreen container.
     // This keeps nodes and edges (connections) but excludes UI overlays like palettes, toolbars, etc.
@@ -1341,7 +1511,7 @@ function FlowApp(): React.ReactElement {
     };
 
     return (
-        <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+        <Box sx={{ height: 'calc(100vh - 17px)', display: 'flex', flexDirection: 'column', position: 'relative' }}>
             <AppBar position="static">
                 <Toolbar variant="dense">
                     <IconButton color="inherit" onClick={handleNewSchema} title="Nuevo esquema">
@@ -1369,6 +1539,9 @@ function FlowApp(): React.ReactElement {
                     </Typography>
                     <IconButton color="inherit" onClick={copySelectedElements} title="Copiar elementos seleccionados (Ctrl+C)">
                         <ContentCopyIcon />
+                    </IconButton>
+                    <IconButton color="inherit" onClick={() => { loadSvgElements(); loadSvgCategories(); setShowSvgDialog(true); }} title="Elementos SVG">
+                        <EditIcon />
                     </IconButton>
                     <IconButton color="inherit" onClick={pasteElements} title="Pegar elementos (Ctrl+V)" disabled={!clipboard || clipboard.nodes.length === 0}>
                         <ContentPasteIcon />
@@ -1478,80 +1651,7 @@ function FlowApp(): React.ReactElement {
                     </Box>
                 )}
             </Box>
-            <Box style={{ position: 'absolute', left: 12, top: 72, width: 160, background: '#f5f5f5', padding: 8, borderRadius: 6, zIndex: 1200 }}>
-                <Typography variant="h6" style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
-                    Paleta
-                </Typography>
-                <Box style={{ marginTop: 8 }}>
-                    {Object.entries(SYMBOL_CATEGORIES).map(([categoryKey, category]) => (
-                        <Accordion key={categoryKey} defaultExpanded={false} style={{ marginBottom: 8 }}>
-                            <AccordionSummary
-                                expandIcon={<ExpandMoreIcon />}
-                                style={{
-                                    padding: '4px 8px',
-                                    minHeight: '32px'
-                                }}
-                            >
-                                <Box style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <Box style={{ width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                        {category.icon}
-                                    </Box>
-                                    <Typography variant="body2" style={{ fontSize: 12, fontWeight: 600 }}>
-                                        {category.name}
-                                    </Typography>
-                                </Box>
-                            </AccordionSummary>
-                            <AccordionDetails style={{ padding: '8px 0' }}>
-                                <Box style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                    {Object.entries(category.symbols).map(([symbolKey, entry]) => {
-                                        const thumbW = Math.min(entry.size?.w ?? 48, 56);
-                                        const thumbH = Math.min(entry.size?.h ?? 48, 56);
-
-                                        // If svg is a React element, clone it to force responsive sizing
-                                        let thumb: React.ReactNode = entry.svg;
-                                        if (React.isValidElement(entry.svg) && typeof entry.svg.type === 'string') {
-                                            thumb = React.cloneElement(entry.svg as React.ReactElement, ({
-                                                width: '100%',
-                                                height: '100%',
-                                                preserveAspectRatio: 'xMidYMid meet'
-                                            } as any));
-                                        }
-
-                                        return (
-                                            <Box
-                                                key={symbolKey}
-                                                draggable
-                                                onDragStart={(e) => onDragStart(e, symbolKey)}
-                                                style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: 6,
-                                                    cursor: 'grab',
-                                                    padding: 4,
-                                                    border: '1px solid #ddd',
-                                                    borderRadius: 4,
-                                                    background: '#fff'
-                                                }}
-                                            >
-                                                <Box style={{
-                                                    width: thumbW,
-                                                    height: thumbH,
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center'
-                                                }}>
-                                                    {thumb}
-                                                </Box>
-                                                <Box style={{ fontSize: 10 }}>{symbolKey}</Box>
-                                            </Box>
-                                        );
-                                    })}
-                                </Box>
-                            </AccordionDetails>
-                        </Accordion>
-                    ))}
-                </Box>
-            </Box>
+            <DynamicPalette onDragStart={onDragStart} />
             {selectedNode ? (
                 <Box style={{ position: 'absolute', right: 12, top: 72, padding: 8, background: '#fff', border: '1px solid #ddd', borderRadius: 6, zIndex: 1300 }}>
                     <Typography variant="h6" style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, textAlign: 'center' }}>
@@ -1753,6 +1853,69 @@ function FlowApp(): React.ReactElement {
                     <Button onClick={() => setShowSchemasDialog(false)}>Cerrar</Button>
                 </DialogActions>
             </Dialog>
+
+                        {/* Diálogo para crear/editar elementos SVG (extraído) */}
+                        {/* eslint-disable-next-line react/jsx-props-no-spreading */}
+                        <React.Suspense fallback={null}>
+                            <SvgEditorDialog
+                                open={showSvgDialog}
+                                onClose={() => setShowSvgDialog(false)}
+                                svgName={svgName}
+                                setSvgName={setSvgName}
+                                svgDescription={svgDescription}
+                                setSvgDescription={setSvgDescription}
+                                svgCategory={svgCategory}
+                                setSvgCategory={setSvgCategory}
+                                categories={svgCategories}
+                                svgHandles={svgHandles}
+                                setSvgHandles={setSvgHandles}
+                                svgMarkup={svgMarkup}
+                                setSvgMarkup={setSvgMarkup}
+                                useEditor={useEditor}
+                                setUseEditor={setUseEditor}
+                                sanitizedSvg={sanitizedSvg}
+                                svgElements={svgElements}
+                                onSaveSvgElement={handleSaveSvgElement}
+                                onInsertElement={(el) => {
+                                    const desired = { x: 100, y: 100 };
+                                    const position = findFreePosition(desired, nodes);
+                                    const parseSvgSize = (svgText: string) => {
+                                        try {
+                                            const parser = new DOMParser();
+                                            const doc = parser.parseFromString(svgText, 'image/svg+xml');
+                                            const svgEl = doc.querySelector('svg');
+                                            if (!svgEl) return undefined;
+                                            const vb = svgEl.getAttribute('viewBox');
+                                            if (vb) {
+                                                const parts = vb.split(/[ ,]+/).map(p => parseFloat(p)).filter(n => !isNaN(n));
+                                                if (parts.length === 4) return { w: Math.abs(parts[2]), h: Math.abs(parts[3]) };
+                                            }
+                                            const wAttr = svgEl.getAttribute('width');
+                                            const hAttr = svgEl.getAttribute('height');
+                                            if (wAttr && hAttr) {
+                                                const pw = parseFloat(wAttr.toString().replace(/[^0-9.\-]/g, ''));
+                                                const ph = parseFloat(hAttr.toString().replace(/[^0-9.\-]/g, ''));
+                                                if (!isNaN(pw) && !isNaN(ph) && pw > 0 && ph > 0) return { w: pw, h: ph };
+                                            }
+                                        } catch (e) { /* ignore */ }
+                                        return undefined;
+                                    };
+                                    const inferred = parseSvgSize(el.svg || '');
+                                    const newNode: Node<any> = {
+                                        id: getId(),
+                                        position,
+                                        type: 'symbolNode',
+                                        data: { symbolKey: `custom_svg_${el.id}`, label: el.name, svg: el.svg, size: inferred }
+                                    };
+                                    setNodes((nds) => nds.concat(newNode));
+                                    setShowSvgDialog(false);
+                                }}
+                                onDeleteElement={async (el) => {
+                                    if (!el.id) return;
+                                    try { await deleteSvgElement(el.id); const elems = await getAllSvgElements(); setSvgElements(elems); } catch (e) { console.error(e); }
+                                }}
+                            />
+                        </React.Suspense>
         </Box>
     );
 }
