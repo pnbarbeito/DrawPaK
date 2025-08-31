@@ -3,7 +3,8 @@ import { Box, Button, TextField, Checkbox, FormControlLabel, Slider, Typography 
 import AddBoxIcon from '@mui/icons-material/AddBox';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import DeleteIcon from '@mui/icons-material/Delete';
-
+import HorizontalRuleIcon from '@mui/icons-material/HorizontalRule';
+import CableIcon from '@mui/icons-material/Cable';
 type Handle = { id: string; x: number; y: number; type?: 'source' | 'target' };
 type BaseShape = {
   id: string;
@@ -27,10 +28,13 @@ type Props = {
   onChange?: (result: { svg: string; handles: (Handle & { shapeId?: string })[] }) => void;
 };
 
-const GRID = 8;
+// GRID is the snapping resolution inside the editor (px)
+const GRID = 10;
+// GRID_SIZE visual grid to match diagram GRID (px)
+const GRID_SIZE = 20;
 
-const defaultRect = (id: string): RectShape => ({ id, type: 'rect', x: 80, y: 60, w: 120, h: 80, fill: true, fillColor: '#e6f2ff', strokeColor: '#000', strokeWidth: 2, rotation: 0, handles: [] });
-const defaultCircle = (id: string): CircleShape => ({ id, type: 'circle', x: 150, y: 90, r: 40, fill: true, fillColor: '#e6f2ff', strokeColor: '#000', strokeWidth: 2, rotation: 0, handles: [] });
+const defaultRect = (id: string): RectShape => ({ id, type: 'rect', x: 40, y: 60, w: 120, h: 80, fill: true, fillColor: '#e6f2ff', strokeColor: '#000', strokeWidth: 2, rotation: 0, handles: [] });
+const defaultCircle = (id: string): CircleShape => ({ id, type: 'circle', x: 100, y: 90, r: 40, fill: true, fillColor: '#e6f2ff', strokeColor: '#000', strokeWidth: 2, rotation: 0, handles: [] });
 const defaultLine = (id: string): LineShape => ({ id, type: 'line', x1: 40, y1: 40, x2: 160, y2: 40, fill: false, fillColor: '#000000', strokeColor: '#000', strokeWidth: 2, rotation: 0, handles: [] });
 
 const DISPLAY_SCALE = 2;
@@ -40,17 +44,20 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
   const dragStartPos = useRef<{ x: number; y: number } | null>(null);
   const dragStartTime = useRef<number>(0);
   const justFinishedDrag = useRef<boolean>(false);
+  const clipboardRef = useRef<Shape[] | null>(null);
   const windowListenersAttached = useRef<boolean>(false);
   const [shapes, setShapes] = useState<Shape[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
+  const [selectedHandleId, setSelectedHandleId] = useState<string | null>(null);
   const [canvasWidth, setCanvasWidth] = useState<number>(width);
   const [canvasHeight, setCanvasHeight] = useState<number>(height);
+  // grid is always visible in the editor but must not be persisted with the exported SVG
   // Ref to keep an up-to-date dragState for global event handlers (avoid stale closures)
   const dragStateRef = useRef<null | {
     mode: 'move' | 'handle' | 'resize';
     shapeId: string;
-    handleId?: string;
-    corner?: 'nw' | 'ne' | 'se' | 'sw';
+  handleId?: string;
+  corner?: 'nw' | 'ne' | 'se' | 'sw' | 'p1' | 'p2' | 'radius';
     offsetX?: number;
     offsetY?: number;
   }>(null);
@@ -58,8 +65,8 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
   const updateDragState = (v: null | {
     mode: 'move' | 'handle' | 'resize';
     shapeId: string;
-    handleId?: string;
-    corner?: 'nw' | 'ne' | 'se' | 'sw';
+  handleId?: string;
+  corner?: 'nw' | 'ne' | 'se' | 'sw' | 'p1' | 'p2' | 'radius';
     offsetX?: number;
     offsetY?: number;
   }) => {
@@ -74,17 +81,55 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
     // Clone and normalize export so width/height are logical (not the visual scaled ones)
     try {
       const clone = svgRef.current.cloneNode(true) as SVGSVGElement;
+      // Ensure logical coordinate system is present and strip physical size attributes
       clone.setAttribute('viewBox', `0 0 ${canvasWidth} ${canvasHeight}`);
-      clone.setAttribute('width', String(canvasWidth));
-      clone.setAttribute('height', String(canvasHeight));
+      clone.removeAttribute('width');
+      clone.removeAttribute('height');
+      // Remove editor-only elements so exported SVG does not include UI artifacts
+      try {
+        const editorHandles = Array.from(clone.querySelectorAll('[data-editor-handle="true"]'));
+        editorHandles.forEach(n => n.parentNode?.removeChild(n));
+        const editorResizers = Array.from(clone.querySelectorAll('[data-editor-resize="true"]'));
+        editorResizers.forEach(n => n.parentNode?.removeChild(n));
+        // remove grid rects and patterns used only by the editor
+        const editorGrids = Array.from(clone.querySelectorAll('[data-editor-grid="true"]'));
+        editorGrids.forEach(n => n.parentNode?.removeChild(n));
+        const patterns = Array.from(clone.querySelectorAll('pattern#editor-grid, pattern#editor-grid-strong'));
+        patterns.forEach(n => n.parentNode?.removeChild(n));
+      } catch (stripErr) {
+        // ignore
+      }
       const serializer = new XMLSerializer();
       const svgStr = serializer.serializeToString(clone);
-      const handles = shapes.flatMap(s => s.handles.map(h => ({ ...h, shapeId: s.id })));
+      const handles = shapes.flatMap(s => s.handles.map(h => ({ id: h.id, x: h.x, y: h.y, type: h.type })));
       onChange({ svg: svgStr, handles });
     } catch (e) {
       const svgStr = svgRef.current.outerHTML;
-      const handles = shapes.flatMap(s => s.handles.map(h => ({ ...h, shapeId: s.id })));
-      onChange({ svg: svgStr, handles });
+      // fallback: try to remove editor handles from original DOM before serializing
+      try {
+        const cloned = new DOMParser().parseFromString(svgStr, 'image/svg+xml');
+        const root = cloned.documentElement;
+        // ensure viewBox exists and remove width/height
+        root.setAttribute('viewBox', `0 0 ${canvasWidth} ${canvasHeight}`);
+        root.removeAttribute('width');
+        root.removeAttribute('height');
+        const editorHandles = Array.from(cloned.querySelectorAll('[data-editor-handle="true"]'));
+        editorHandles.forEach(n => n.parentNode?.removeChild(n));
+        const editorResizers = Array.from(cloned.querySelectorAll('[data-editor-resize="true"]'));
+        editorResizers.forEach(n => n.parentNode?.removeChild(n));
+        const editorGrids = Array.from(cloned.querySelectorAll('[data-editor-grid="true"]'));
+        editorGrids.forEach(n => n.parentNode?.removeChild(n));
+        const patterns = Array.from(cloned.querySelectorAll('pattern#editor-grid, pattern#editor-grid-strong'));
+        patterns.forEach(n => n.parentNode?.removeChild(n));
+        const serializer = new XMLSerializer();
+        const cleaned = serializer.serializeToString(root);
+        const handles = shapes.flatMap(s => s.handles.map(h => ({ id: h.id, x: h.x, y: h.y, type: h.type })));
+        onChange({ svg: cleaned, handles });
+        return;
+      } catch (_e2) {
+        const handles = shapes.flatMap(s => s.handles.map(h => ({ id: h.id, x: h.x, y: h.y, type: h.type })));
+        onChange({ svg: svgStr, handles });
+      }
     }
   }, [shapes, onChange, canvasWidth, canvasHeight]);
 
@@ -103,10 +148,34 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
   const addLine = () => {
     const id = `shape_${Date.now()}`;
     const ln = defaultLine(id);
-    // add handles at endpoints
-    ln.handles = [ { id: `${id}_h1`, x: ln.x1, y: ln.y1, type: 'source' }, { id: `${id}_h2`, x: ln.x2, y: ln.y2, type: 'target' } ];
+    // add handles at endpoints so endpoints can be dragged
+    //ln.handles = [{ id: `${id}_h1`, x: ln.x1, y: ln.y1, type: 'source' }, { id: `${id}_h2`, x: ln.x2, y: ln.y2, type: 'target' }];
     setShapes(prev => [...prev, ln]);
     setSelected(id);
+  };
+
+  const onMouseDownLineEndpoint = (e: React.MouseEvent, shape: LineShape, which: 'p1' | 'p2') => {
+    e.stopPropagation();
+    if (e.button !== 0) return;
+    setSelected(shape.id);
+    updateDragState({ mode: 'resize', shapeId: shape.id, corner: which });
+    if (!windowListenersAttached.current) {
+      window.addEventListener('mousemove', handleWindowMouseMove);
+      window.addEventListener('mouseup', handleWindowMouseUp);
+      windowListenersAttached.current = true;
+    }
+  };
+
+  const onMouseDownCircleResize = (e: React.MouseEvent, shape: CircleShape) => {
+    e.stopPropagation();
+    if (e.button !== 0) return;
+    setSelected(shape.id);
+    updateDragState({ mode: 'resize', shapeId: shape.id, corner: 'radius' });
+    if (!windowListenersAttached.current) {
+      window.addEventListener('mousemove', handleWindowMouseMove);
+      window.addEventListener('mouseup', handleWindowMouseUp);
+      windowListenersAttached.current = true;
+    }
   };
 
   const deleteSelectedShape = () => {
@@ -114,6 +183,109 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
     setShapes(prev => prev.filter(s => s.id !== selected));
     setSelected(null);
   };
+
+  // Delete selected shape when user presses Delete or Backspace (but not when typing in inputs)
+  React.useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      try {
+        const active = document.activeElement as HTMLElement | null;
+        const tag = active?.tagName?.toLowerCase() || '';
+        const isEditable = active?.isContentEditable || ['input', 'textarea', 'select'].includes(tag);
+        if (isEditable) return;
+      } catch (err) {
+        // ignore
+      }
+
+      // Delete / Backspace -> remove selected shape
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selected) {
+          e.preventDefault();
+          setShapes(prev => prev.filter(s => s.id !== selected));
+          setSelected(null);
+        }
+        return;
+      }
+
+      // Copy (Ctrl/Cmd + C)
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
+        if (selected) {
+          e.preventDefault();
+          const shape = shapes.find(s => s.id === selected);
+          if (shape) {
+            // deep clone shape and handles
+            const cloneShape: Shape = JSON.parse(JSON.stringify(shape));
+            clipboardRef.current = [cloneShape];
+            console.debug('[SvgEditor] Copied shape to clipboard', cloneShape.id);
+          }
+        }
+        return;
+      }
+
+      // Paste (Ctrl/Cmd + V)
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
+        const cb = clipboardRef.current;
+        if (!cb || cb.length === 0) return;
+        e.preventDefault();
+        // Paste all shapes in clipboard (usually single)
+        setShapes(prev => {
+          const newOnes: Shape[] = cb.map(orig => {
+            const newid = `shape_${Date.now()}_${Math.floor(Math.random()*10000)}`;
+            // deep clone
+            const s = JSON.parse(JSON.stringify(orig)) as any;
+            // remap id
+            s.id = newid;
+            // offset position a bit so pasted item is visible
+            if (s.type === 'rect') { s.x = (s.x || 0) + 10; s.y = (s.y || 0) + 10; }
+            if (s.type === 'circle') { s.x = (s.x || 0) + 10; s.y = (s.y || 0) + 10; }
+            if (s.type === 'line') { s.x1 = (s.x1 || 0) + 10; s.y1 = (s.y1 || 0) + 10; s.x2 = (s.x2 || 0) + 10; s.y2 = (s.y2 || 0) + 10; }
+            // remap handles ids
+            if (Array.isArray(s.handles)) {
+              s.handles = s.handles.map((h: any) => ({ ...h, id: `h_${Date.now()}_${Math.floor(Math.random()*10000)}` }));
+            }
+            return s as Shape;
+          });
+          // select the last pasted shape
+          const last = newOnes[newOnes.length - 1];
+          setTimeout(() => setSelected(last.id), 10);
+          return [...prev, ...newOnes];
+        });
+        return;
+      }
+
+      // Arrow keys -> move selected element by 1 unit
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        try {
+          const active = document.activeElement as HTMLElement | null;
+          const tag = active?.tagName?.toLowerCase() || '';
+          const isEditable = active?.isContentEditable || ['input', 'textarea', 'select'].includes(tag);
+          if (isEditable) return; // don't move while editing inputs
+        } catch (err) {
+          // ignore
+        }
+        e.preventDefault();
+        const map: Record<string, [number, number]> = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+        const [dx, dy] = map[e.key];
+        if (!selected) return;
+        setShapes(prev => prev.map(s => {
+          if (s.id !== selected) return s;
+          if (s.type === 'rect') {
+            return { ...s, x: s.x + dx, y: s.y + dy, handles: s.handles.map(h => ({ ...h, x: h.x + dx, y: h.y + dy })) };
+          }
+          if (s.type === 'circle') {
+            return { ...s, x: s.x + dx, y: s.y + dy, handles: s.handles.map(h => ({ ...h, x: h.x + dx, y: h.y + dy })) };
+          }
+          if (s.type === 'line') {
+            return { ...s, x1: s.x1 + dx, y1: s.y1 + dy, x2: s.x2 + dx, y2: s.y2 + dy, handles: s.handles.map(h => ({ ...h, x: h.x + dx, y: h.y + dy })) };
+          }
+          return s;
+        }));
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [selected, shapes]);
 
   const addHandleToSelected = () => {
     if (!selected) return;
@@ -123,7 +295,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
       let hx = 0, hy = 0;
       if (s.type === 'rect') { hx = snap(s.x + s.w / 2); hy = snap(s.y + s.h / 2); }
       else if (s.type === 'circle') { hx = snap(s.x); hy = snap(s.y); }
-      else if (s.type === 'line') { hx = snap((s.x1 + s.x2)/2); hy = snap((s.y1 + s.y2)/2); }
+      else if (s.type === 'line') { hx = snap((s.x1 + s.x2) / 2); hy = snap((s.y1 + s.y2) / 2); }
       return { ...s, handles: [...(s.handles || []), { id: hid, x: hx, y: hy, type: 'source' }] };
     }));
   };
@@ -143,12 +315,12 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
     if (e.button !== 0) return;
     const svgP = clientToSvgPoint(e.clientX, e.clientY);
     if (!svgP) return;
-    
+
     // Resetear bandera al iniciar nuevo drag
     justFinishedDrag.current = false;
     dragStartPos.current = { x: e.clientX, y: e.clientY };
     dragStartTime.current = Date.now();
-    
+
     setSelected(shape.id);
     // offset for move
     if (shape.type === 'rect') updateDragState({ mode: 'move', shapeId: shape.id, offsetX: svgP.x - shape.x, offsetY: svgP.y - shape.y });
@@ -158,8 +330,8 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
       updateDragState({ mode: 'move', shapeId: shape.id, offsetX: svgP.x - shape.x1, offsetY: svgP.y - shape.y1 });
     }
 
-            console.debug('[SvgEditor] onMouseDownShape', { id: shape.id, clientX: e.clientX, clientY: e.clientY, svgX: svgP.x, svgY: svgP.y, justFinishedDrag: justFinishedDrag.current });
-            console.debug('[SvgEditor] onMouseDownShape', { id: shape.id, clientX: e.clientX, clientY: e.clientY, svgX: svgP.x, svgY: svgP.y, justFinishedDrag: justFinishedDrag.current });
+    console.debug('[SvgEditor] onMouseDownShape', { id: shape.id, clientX: e.clientX, clientY: e.clientY, svgX: svgP.x, svgY: svgP.y, justFinishedDrag: justFinishedDrag.current });
+    console.debug('[SvgEditor] onMouseDownShape', { id: shape.id, clientX: e.clientX, clientY: e.clientY, svgX: svgP.x, svgY: svgP.y, justFinishedDrag: justFinishedDrag.current });
     // attach global listeners so dragging keeps working even if pointer leaves the svg
     if (!windowListenersAttached.current) {
       window.addEventListener('mousemove', handleWindowMouseMove);
@@ -171,8 +343,8 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
   const onMouseDownHandle = (e: React.MouseEvent, shapeId: string, handleId: string) => {
     e.stopPropagation();
     if (e.button !== 0) return;
-  console.debug('[SvgEditor] onMouseDownHandle', { shapeId, handleId });
-  updateDragState({ mode: 'handle', shapeId, handleId });
+    console.debug('[SvgEditor] onMouseDownHandle', { shapeId, handleId });
+    updateDragState({ mode: 'handle', shapeId, handleId });
     if (!windowListenersAttached.current) {
       window.addEventListener('mousemove', handleWindowMouseMove);
       window.addEventListener('mouseup', handleWindowMouseUp);
@@ -184,8 +356,8 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
     e.stopPropagation();
     if (e.button !== 0) return;
     setSelected(shape.id);
-  console.debug('[SvgEditor] onMouseDownResizeCorner', { shapeId: shape.id, corner });
-  updateDragState({ mode: 'resize', shapeId: shape.id, corner, offsetX: 0, offsetY: 0 });
+    console.debug('[SvgEditor] onMouseDownResizeCorner', { shapeId: shape.id, corner });
+    updateDragState({ mode: 'resize', shapeId: shape.id, corner, offsetX: 0, offsetY: 0 });
     if (!windowListenersAttached.current) {
       window.addEventListener('mousemove', handleWindowMouseMove);
       window.addEventListener('mouseup', handleWindowMouseUp);
@@ -200,7 +372,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
 
     // Marcar que hubo movimiento real para prevenir clicks que deseleccionen
     justFinishedDrag.current = true;
-  console.debug('[SvgEditor] handleWindowMouseMove', { clientX: e.clientX, clientY: e.clientY, svgX: svgP.x, svgY: svgP.y, dragState: dragStateRef.current });
+    console.debug('[SvgEditor] handleWindowMouseMove', { clientX: e.clientX, clientY: e.clientY, svgX: svgP.x, svgY: svgP.y, dragState: dragStateRef.current });
 
     setShapes(prev => prev.map(s => {
       const currentDrag = dragStateRef.current;
@@ -246,6 +418,61 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
         const ny = Math.min(ny1, ny2);
         return { ...s, x: nx, y: ny, w: nw, h: nh } as RectShape;
       }
+      // resize handling for circle radius
+      if (currentDrag?.mode === 'resize' && s.type === 'circle') {
+        const cs = s as CircleShape;
+        if (currentDrag.corner === 'radius') {
+          const dx = svgP.x - cs.x;
+          const dy = svgP.y - cs.y;
+          const nr = Math.max(4, snap(Math.sqrt(dx * dx + dy * dy)));
+          return { ...cs, r: nr } as CircleShape;
+        }
+      }
+
+      // resize handling for line endpoints p1/p2
+      if (currentDrag?.mode === 'resize' && s.type === 'line') {
+        const ls = s as LineShape;
+        if (currentDrag.corner === 'p1') {
+          const nx1 = snap(svgP.x);
+          const ny1 = snap(svgP.y);
+          const newHandles = ls.handles.map((h, idx) => idx === 0 ? { ...h, x: nx1, y: ny1 } : h);
+          return { ...ls, x1: nx1, y1: ny1, handles: newHandles } as LineShape;
+        }
+        if (currentDrag.corner === 'p2') {
+          const nx2 = snap(svgP.x);
+          const ny2 = snap(svgP.y);
+          const newHandles = ls.handles.map((h, idx) => idx === 1 ? { ...h, x: nx2, y: ny2 } : h);
+          return { ...ls, x2: nx2, y2: ny2, handles: newHandles } as LineShape;
+        }
+      }
+      // resize handling for circle radius
+      if (currentDrag?.mode === 'resize' && s.type === 'circle') {
+        const cs = s as CircleShape;
+        if (currentDrag.corner === 'radius') {
+          // compute new radius based on mouse distance to center
+          const dx = svgP.x - cs.x;
+          const dy = svgP.y - cs.y;
+          const nr = Math.max(4, snap(Math.sqrt(dx * dx + dy * dy)));
+          return { ...cs, r: nr } as CircleShape;
+        }
+      }
+
+      // resize handling for line endpoints p1/p2
+      if (currentDrag?.mode === 'resize' && s.type === 'line') {
+        const ls = s as LineShape;
+        if (currentDrag.corner === 'p1') {
+          const nx1 = snap(svgP.x);
+          const ny1 = snap(svgP.y);
+          const newHandles = ls.handles.map((h, idx) => idx === 0 ? { ...h, x: nx1, y: ny1 } : h);
+          return { ...ls, x1: nx1, y1: ny1, handles: newHandles } as LineShape;
+        }
+        if (currentDrag.corner === 'p2') {
+          const nx2 = snap(svgP.x);
+          const ny2 = snap(svgP.y);
+          const newHandles = ls.handles.map((h, idx) => idx === 1 ? { ...h, x: nx2, y: ny2 } : h);
+          return { ...ls, x2: nx2, y2: ny2, handles: newHandles } as LineShape;
+        }
+      }
 
       return s;
     }));
@@ -275,13 +502,13 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
   };
 
   const onMouseMove = (e: React.MouseEvent) => {
-  if (!dragStateRef.current) return;
+    if (!dragStateRef.current) return;
     const svgP = clientToSvgPoint(e.clientX, e.clientY);
     if (!svgP) return;
 
-  // Marcar que hubo movimiento real para prevenir clicks que deseleccionen
-  justFinishedDrag.current = true;
-  console.debug('[SvgEditor] onMouseMove', { mode: dragStateRef.current?.mode, shapeId: dragStateRef.current?.shapeId, clientX: e.clientX, clientY: e.clientY, svgX: svgP.x, svgY: svgP.y, justFinishedDrag: justFinishedDrag.current });
+    // Marcar que hubo movimiento real para prevenir clicks que deseleccionen
+    justFinishedDrag.current = true;
+    console.debug('[SvgEditor] onMouseMove', { mode: dragStateRef.current?.mode, shapeId: dragStateRef.current?.shapeId, clientX: e.clientX, clientY: e.clientY, svgX: svgP.x, svgY: svgP.y, justFinishedDrag: justFinishedDrag.current });
 
     setShapes(prev => prev.map(s => {
       const currentDrag = dragStateRef.current;
@@ -361,49 +588,88 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
     }));
   };
 
+  const setHandleType = (shapeId: string, handleId: string, type: 'source' | 'target') => {
+    setShapes(prev => prev.map(s => {
+      if (s.id !== shapeId) return s;
+      return { ...s, handles: s.handles.map(h => h.id === handleId ? { ...h, type } : h) };
+    }));
+  };
+
   const deleteHandle = (shapeId: string, handleId: string) => {
     setShapes(prev => prev.map(s => s.id === shapeId ? { ...s, handles: s.handles.filter(h => h.id !== handleId) } : s));
   };
 
   const updateSelectedProp = (patch: Partial<Shape>) => {
     if (!selected) return;
-    setShapes(prev => prev.map(s => s.id === selected ? ({ ...s, ...(patch as any) }) : s));
+    setShapes(prev => prev.map(s => {
+      if (s.id !== selected) return s;
+      // apply patch
+      const updated = ({ ...s, ...(patch as any) }) as Shape;
+      // If it's a line, and endpoints were changed, keep first two handles synced to endpoints
+      if (s.type === 'line') {
+        const ls = updated as LineShape;
+        if (Array.isArray(s.handles) && s.handles.length >= 2) {
+          const newHandles = s.handles.map((h, idx) => {
+            if (idx === 0) return { ...h, x: ls.x1, y: ls.y1 };
+            if (idx === 1) return { ...h, x: ls.x2, y: ls.y2 };
+            return h;
+          });
+          (updated as any).handles = newHandles;
+        }
+      }
+      return updated;
+    }));
   };
 
   const exportSvg = () => {
     if (!svgRef.current) return;
-    const outer = svgRef.current.outerHTML;
-    const handles = shapes.flatMap(s => s.handles.map(h => ({ ...h, shapeId: s.id })));
-    if (onChange) onChange({ svg: outer, handles });
+    try {
+      const clone = svgRef.current.cloneNode(true) as SVGSVGElement;
+      clone.setAttribute('viewBox', `0 0 ${canvasWidth} ${canvasHeight}`);
+      clone.removeAttribute('width');
+      clone.removeAttribute('height');
+      const editorHandles = Array.from(clone.querySelectorAll('[data-editor-handle="true"]'));
+      editorHandles.forEach(n => n.parentNode?.removeChild(n));
+      const editorResizers = Array.from(clone.querySelectorAll('[data-editor-resize="true"]'));
+      editorResizers.forEach(n => n.parentNode?.removeChild(n));
+      const serializer = new XMLSerializer();
+      const svgStr = serializer.serializeToString(clone);
+      const handles = shapes.flatMap(s => s.handles.map(h => ({ id: h.id, x: h.x, y: h.y, type: h.type })));
+      if (onChange) onChange({ svg: svgStr, handles });
+    } catch (e) {
+      const outer = svgRef.current.outerHTML;
+      const handles = shapes.flatMap(s => s.handles.map(h => ({ id: h.id, x: h.x, y: h.y, type: h.type })));
+      if (onChange) onChange({ svg: outer, handles });
+    }
   };
 
   const selectedShape = shapes.find(s => s.id === selected) as Shape | undefined;
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1 }}>
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1, flexWrap: 'wrap' }}>
         <Box>
-          <Button variant="contained" startIcon={<AddBoxIcon />} onClick={addRect}>Rect</Button>
+          <Button variant="contained" startIcon={<AddBoxIcon />} onClick={addRect}>Rectángulo</Button>
         </Box>
         <Box>
-          <Button variant="contained" startIcon={<RadioButtonUncheckedIcon />} onClick={addCircle}>Circle</Button>
+          <Button variant="contained" startIcon={<RadioButtonUncheckedIcon />} onClick={addCircle}>Circulo</Button>
         </Box>
         <Box>
-          <Button variant="contained" onClick={addLine}>Line</Button>
+          <Button variant="contained" startIcon={<HorizontalRuleIcon />} onClick={addLine}>Línea</Button>
         </Box>
         <Box>
           <Button variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={deleteSelectedShape} disabled={!selected}>Borrar</Button>
         </Box>
         <Box>
-          <Button variant="outlined" onClick={addHandleToSelected} disabled={!selected}>Añadir handle</Button>
+          <Button variant="outlined" onClick={addHandleToSelected} startIcon={<CableIcon />} disabled={!selected}>Añadir handle</Button>
         </Box>
         <Box sx={{ ml: 'auto', display: 'flex', gap: 1 }}>
-          <TextField label="Width" type="number" size="small" value={canvasWidth} onChange={(e) => setCanvasWidth(Number(e.target.value) || 100)} sx={{ width: 100, mr: 1 }} />
-          <TextField label="Height" type="number" size="small" value={canvasHeight} onChange={(e) => setCanvasHeight(Number(e.target.value) || 100)} sx={{ width: 100 }} />
+          <TextField label="Ancho" type="number" size="small" value={canvasWidth} onChange={(e) => setCanvasWidth(Number(e.target.value) || 100)} sx={{ width: 100, mr: 1 }} />
+          <TextField label="Alto" type="number" size="small" value={canvasHeight} onChange={(e) => setCanvasHeight(Number(e.target.value) || 100)} sx={{ width: 100 }} />
         </Box>
       </Box>
 
-      <Box sx={{ display: 'flex', gap: 2 }}>
+      <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <Box sx={{ border: '1px solid #ddd', width: canvasWidth * DISPLAY_SCALE + 5, height: canvasHeight * DISPLAY_SCALE + 5, overflow: 'auto' }}>
           <svg
             ref={svgRef}
@@ -429,6 +695,18 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
             onMouseUp={onMouseUp}
             onMouseLeave={onMouseUp}
           >
+            {/* grid pattern defs */}
+            <defs>
+              <pattern id="editor-grid" width={GRID_SIZE} height={GRID_SIZE} patternUnits="userSpaceOnUse">
+                <path d={`M ${GRID_SIZE} 0 L 0 0 0 ${GRID_SIZE}`} fill="none" stroke="#ddd" strokeWidth="0.5" />
+              </pattern>
+              <pattern id="editor-grid-strong" width={GRID_SIZE * 5} height={GRID_SIZE * 5} patternUnits="userSpaceOnUse">
+                <rect width={GRID_SIZE * 5} height={GRID_SIZE * 5} fill="none" />
+                <path d={`M ${GRID_SIZE * 5} 0 L 0 0 0 ${GRID_SIZE * 5}`} fill="none" stroke="#e6e6e6" strokeWidth="1" />
+              </pattern>
+            </defs>
+
+            <rect data-editor-grid="true" x={0} y={0} width={canvasWidth} height={canvasHeight} fill="url(#editor-grid)" />
             {shapes.map(s => (
               <g key={s.id}>
                 {s.type === 'rect' && (() => {
@@ -449,10 +727,10 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
                       />
                       {selected === rs.id && (
                         <g>
-                          <rect x={rs.x - 6} y={rs.y - 6} width={12} height={12} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownResizeCorner(e, rs, 'nw')} />
-                          <rect x={rs.x + rs.w - 6} y={rs.y - 6} width={12} height={12} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownResizeCorner(e, rs, 'ne')} />
-                          <rect x={rs.x + rs.w - 6} y={rs.y + rs.h - 6} width={12} height={12} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownResizeCorner(e, rs, 'se')} />
-                          <rect x={rs.x - 6} y={rs.y + rs.h - 6} width={12} height={12} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownResizeCorner(e, rs, 'sw')} />
+                          <rect data-editor-resize="true" x={rs.x - 6} y={rs.y - 6} width={12} height={12} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownResizeCorner(e, rs, 'nw')} />
+                          <rect data-editor-resize="true" x={rs.x + rs.w - 6} y={rs.y - 6} width={12} height={12} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownResizeCorner(e, rs, 'ne')} />
+                          <rect data-editor-resize="true" x={rs.x + rs.w - 6} y={rs.y + rs.h - 6} width={12} height={12} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownResizeCorner(e, rs, 'se')} />
+                          <rect data-editor-resize="true" x={rs.x - 6} y={rs.y + rs.h - 6} width={12} height={12} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownResizeCorner(e, rs, 'sw')} />
                         </g>
                       )}
                     </g>
@@ -474,22 +752,38 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
                         strokeWidth={cs.strokeWidth}
                         onMouseDown={(e) => onMouseDownShape(e, cs)}
                       />
+                      {selected === cs.id && (
+                        <g>
+                          {/* resize square on circle rightmost point */}
+                          <rect data-editor-resize="true" x={cs.x + cs.r - 6} y={cs.y - 6} width={12} height={12} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownCircleResize(e, cs)} />
+                        </g>
+                      )}
                     </g>
                   );
                 })()}
 
                 {s.type === 'line' && (() => {
                   const ls = s as LineShape;
+                  const cx = (ls.x1 + ls.x2) / 2;
+                  const cy = (ls.y1 + ls.y2) / 2;
                   return (
-                    <line
-                      x1={ls.x1}
-                      y1={ls.y1}
-                      x2={ls.x2}
-                      y2={ls.y2}
-                      stroke={ls.strokeColor}
-                      strokeWidth={ls.strokeWidth}
-                      onMouseDown={(e) => onMouseDownShape(e, ls)}
-                    />
+                    <g transform={`rotate(${ls.rotation || 0}, ${cx}, ${cy})`}>
+                      <line
+                        x1={ls.x1}
+                        y1={ls.y1}
+                        x2={ls.x2}
+                        y2={ls.y2}
+                        stroke={ls.strokeColor}
+                        strokeWidth={ls.strokeWidth}
+                        onMouseDown={(e) => onMouseDownShape(e, ls)}
+                      />
+                      {selected === ls.id && (
+                        <g>
+                          <rect data-editor-resize="true" x={ls.x1 - 6} y={ls.y1 - 6} width={12} height={12} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownLineEndpoint(e, ls, 'p1')} />
+                          <rect data-editor-resize="true" x={ls.x2 - 6} y={ls.y2 - 6} width={12} height={12} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownLineEndpoint(e, ls, 'p2')} />
+                        </g>
+                      )}
+                    </g>
                   );
                 })()}
 
@@ -501,10 +795,11 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
                     r={6}
                     fill={h.type === 'source' ? '#22c55e' : '#ef4444'}
                     stroke="#111"
+                    data-editor-handle="true"
                     onMouseDown={(e) => onMouseDownHandle(e, s.id, h.id)}
-                    onClick={(e) => e.stopPropagation()}
-                    onDoubleClick={(e) => { e.stopPropagation(); toggleHandleType(s.id, h.id); }}
-                    onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); deleteHandle(s.id, h.id); }}
+                    onClick={(e) => { e.stopPropagation(); setSelectedHandleId(h.id); setSelected(s.id); }}
+                    onDoubleClick={(e) => { e.stopPropagation(); toggleHandleType(s.id, h.id); setSelectedHandleId(h.id); setSelected(s.id); }}
+                    onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); deleteHandle(s.id, h.id); setSelectedHandleId(null); }}
                     style={{ cursor: 'grab' }}
                   />
                 ))}
@@ -513,58 +808,112 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
           </svg>
         </Box>
 
-        <Box sx={{ width: 300 }}>
-          <Typography variant="subtitle1">Propiedades</Typography>
-          {!selected && <Typography variant="body2" color="text.secondary">Selecciona una forma para editar sus propiedades</Typography>}
-          {selected && selectedShape && (
-            <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <Typography variant="caption">Tipo: {selectedShape.type}</Typography>
-              {/* Fill toggle and color */}
-              <FormControlLabel control={<Checkbox checked={!!selectedShape.fill} onChange={(e) => updateSelectedProp({ fill: e.target.checked } as any)} />} label="Fill" />
-              <TextField type="color" label="Fill color" value={selectedShape.fillColor || '#000000'} onChange={(e) => updateSelectedProp({ fillColor: e.target.value } as any)} />
-              <Box>
-                <Typography variant="caption">Stroke color</Typography>
-                <TextField type="color" value={selectedShape.strokeColor || '#000000'} onChange={(e) => updateSelectedProp({ strokeColor: e.target.value } as any)} />
+        <Box sx={{ display: 'flex', gap: 2, flex: '1 1 50%', minWidth: 260 }}>
+          <Box sx={{ flex: '1 1 50%', minWidth: 220 }}>
+            <Typography variant="subtitle1">Propiedades</Typography>
+            {/* grid always visible in editor (not persisted) */}
+            {!selected && <Typography variant="body2" color="text.secondary">Selecciona una forma para editar sus propiedades</Typography>}
+            {selected && selectedShape && (
+              <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <Typography variant="caption">Tipo: {selectedShape.type}</Typography>
+                {/* Fill toggle and color */}
+                <FormControlLabel control={<Checkbox checked={!!selectedShape.fill} onChange={(e) => updateSelectedProp({ fill: e.target.checked } as any)} />} label="Relleno" />
+                <TextField type="color" label="Color de relleno" size="small" sx={{ width: 140 }} value={selectedShape.fillColor || '#000000'} onChange={(e) => updateSelectedProp({ fillColor: e.target.value } as any)} />
+                <Box>
+                  <TextField type="color" label="Color de trazo" size="small" sx={{ width: 140 }} value={selectedShape.strokeColor || '#000000'} onChange={(e) => updateSelectedProp({ strokeColor: e.target.value } as any)} />
+                </Box>
+                <Box>
+                  <Typography variant="caption">Ancho de trazo</Typography>
+                  <Slider min={0} max={10} value={selectedShape.strokeWidth ?? 1} onChange={(_, v) => updateSelectedProp({ strokeWidth: Array.isArray(v) ? v[0] : v } as any)} />
+                </Box>
+                <Box>
+                  <TextField type="number" label="Rotación (°)" value={selectedShape.rotation ?? 0} onChange={(e) => updateSelectedProp({ rotation: Number(e.target.value) || 0 } as any)} />
+                </Box>
               </Box>
-              <Box>
-                <Typography variant="caption">Stroke width</Typography>
-                <Slider min={0} max={10} value={selectedShape.strokeWidth ?? 1} onChange={(_, v) => updateSelectedProp({ strokeWidth: Array.isArray(v) ? v[0] : v } as any)} />
+            )}
+          </Box>
+          <Box sx={{ flex: '1 1 50%', minWidth: 220 }}>
+            {/* right properties column */}
+            {(!selected || !selectedShape) && <Box sx={{ mt: 1 }} />}
+            {selected && selectedShape && (
+              <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {/* Selected handle controls */}
+                <Box>
+                  <Typography variant="subtitle2">Handles</Typography>
+                  {selectedShape.handles.length === 0 && <Typography variant="body2" color="text.secondary">No tiene handles</Typography>}
+                  {selectedShape.handles.length > 0 && (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 1 }}>
+                      {selectedShape.handles.map(h => (
+                        <Box key={h.id} sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                          <Button size="small" variant={selectedHandleId === h.id ? 'contained' : 'outlined'} onClick={() => { setSelectedHandleId(h.id); setSelected(selectedShape.id); }}>{h.id}</Button>
+                          <Button size="small" onClick={() => toggleHandleType(selectedShape.id, h.id)} color={h?.type === 'source' ? 'success' : 'error'} variant="outlined">{(h?.type ?? '').toUpperCase()}</Button>
+                          <Button size="small" color="error" onClick={() => deleteHandle(selectedShape.id, h.id)}>Eliminar</Button>
+                        </Box>
+                      ))}
+                      {selectedHandleId && (
+                        <Box sx={{ mt: 1 }}>
+                          <Typography variant="caption">Tipo del handle seleccionado</Typography>
+                          <Box sx={{ display: 'flex', gap: 1, mt: 0.5 }}>
+                            <Button
+                              variant={(() => {
+                                const h = selectedShape.handles.find(x => x.id === selectedHandleId);
+                                return h?.type === 'source' ? 'contained' : 'outlined';
+                              })()}
+                              color="success"
+                              onClick={() => { const hid = selectedHandleId; if (!hid) return; setHandleType(selectedShape.id, hid, 'source'); }}
+                            >SOURCE</Button>
+                            <Button
+                              variant={(() => {
+                                const h = selectedShape.handles.find(x => x.id === selectedHandleId);
+                                return h?.type === 'target' ? 'contained' : 'outlined';
+                              })()}
+                              color="error"
+                              onClick={() => { const hid = selectedHandleId; if (!hid) return; setHandleType(selectedShape.id, hid, 'target'); }}
+                            >TARGET</Button>
+                          </Box>
+                        </Box>
+                      )}
+                    </Box>
+                  )}
+                </Box>
+
+                {/* Position / size fields */}
+                {selectedShape.type === 'rect' && (
+                  <>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+                      <TextField fullWidth label="X" type="number" size="small" value={(selectedShape as RectShape).x} onChange={(e) => updateSelectedProp({ x: Number(e.target.value) } as any)} />
+                      <TextField fullWidth label="Y" type="number" size="small" value={(selectedShape as RectShape).y} onChange={(e) => updateSelectedProp({ y: Number(e.target.value) } as any)} />
+                      <TextField fullWidth label="W" type="number" size="small" value={(selectedShape as RectShape).w} onChange={(e) => updateSelectedProp({ w: Number(e.target.value) } as any)} />
+                      <TextField fullWidth label="H" type="number" size="small" value={(selectedShape as RectShape).h} onChange={(e) => updateSelectedProp({ h: Number(e.target.value) } as any)} />
+                    </Box>
+                  </>
+                )}
+
+                {selectedShape.type === 'circle' && (
+                  <>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+                      <TextField fullWidth label="CX" type="number" size="small" value={(selectedShape as CircleShape).x} onChange={(e) => updateSelectedProp({ x: Number(e.target.value) } as any)} />
+                      <TextField fullWidth label="CY" type="number" size="small" value={(selectedShape as CircleShape).y} onChange={(e) => updateSelectedProp({ y: Number(e.target.value) } as any)} />
+                      <TextField fullWidth sx={{ gridColumn: '1 / -1' }} label="R" type="number" size="small" value={(selectedShape as CircleShape).r} onChange={(e) => updateSelectedProp({ r: Number(e.target.value) } as any)} />
+                    </Box>
+                  </>
+                )}
+
+                {selectedShape.type === 'line' && (
+                  <>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+                      <TextField fullWidth label="X1" type="number" size="small" value={(selectedShape as LineShape).x1} onChange={(e) => updateSelectedProp({ x1: Number(e.target.value) } as any)} />
+                      <TextField fullWidth label="Y1" type="number" size="small" value={(selectedShape as LineShape).y1} onChange={(e) => updateSelectedProp({ y1: Number(e.target.value) } as any)} />
+                      <TextField fullWidth label="X2" type="number" size="small" value={(selectedShape as LineShape).x2} onChange={(e) => updateSelectedProp({ x2: Number(e.target.value) } as any)} />
+                      <TextField fullWidth label="Y2" type="number" size="small" value={(selectedShape as LineShape).y2} onChange={(e) => updateSelectedProp({ y2: Number(e.target.value) } as any)} />
+                    </Box>
+                  </>
+                )}
+
+                <Button variant="contained" sx={{ mt: 1 }} onClick={exportSvg}>Aplicar</Button>
               </Box>
-              <Box>
-                <Typography variant="caption">Rotación (deg)</Typography>
-                <TextField type="number" value={selectedShape.rotation ?? 0} onChange={(e) => updateSelectedProp({ rotation: Number(e.target.value) || 0 } as any)} />
-              </Box>
-
-              {/* Position / size fields */}
-              {selectedShape.type === 'rect' && (
-                <>
-                  <TextField label="X" type="number" size="small" value={(selectedShape as RectShape).x} onChange={(e) => updateSelectedProp({ x: Number(e.target.value) } as any)} />
-                  <TextField label="Y" type="number" size="small" value={(selectedShape as RectShape).y} onChange={(e) => updateSelectedProp({ y: Number(e.target.value) } as any)} />
-                  <TextField label="W" type="number" size="small" value={(selectedShape as RectShape).w} onChange={(e) => updateSelectedProp({ w: Number(e.target.value) } as any)} />
-                  <TextField label="H" type="number" size="small" value={(selectedShape as RectShape).h} onChange={(e) => updateSelectedProp({ h: Number(e.target.value) } as any)} />
-                </>
-              )}
-
-              {selectedShape.type === 'circle' && (
-                <>
-                  <TextField label="CX" type="number" size="small" value={(selectedShape as CircleShape).x} onChange={(e) => updateSelectedProp({ x: Number(e.target.value) } as any)} />
-                  <TextField label="CY" type="number" size="small" value={(selectedShape as CircleShape).y} onChange={(e) => updateSelectedProp({ y: Number(e.target.value) } as any)} />
-                  <TextField label="R" type="number" size="small" value={(selectedShape as CircleShape).r} onChange={(e) => updateSelectedProp({ r: Number(e.target.value) } as any)} />
-                </>
-              )}
-
-              {selectedShape.type === 'line' && (
-                <>
-                  <TextField label="X1" type="number" size="small" value={(selectedShape as LineShape).x1} onChange={(e) => updateSelectedProp({ x1: Number(e.target.value) } as any)} />
-                  <TextField label="Y1" type="number" size="small" value={(selectedShape as LineShape).y1} onChange={(e) => updateSelectedProp({ y1: Number(e.target.value) } as any)} />
-                  <TextField label="X2" type="number" size="small" value={(selectedShape as LineShape).x2} onChange={(e) => updateSelectedProp({ x2: Number(e.target.value) } as any)} />
-                  <TextField label="Y2" type="number" size="small" value={(selectedShape as LineShape).y2} onChange={(e) => updateSelectedProp({ y2: Number(e.target.value) } as any)} />
-                </>
-              )}
-
-              <Button variant="contained" sx={{ mt: 1 }} onClick={exportSvg}>Aplicar / Exportar</Button>
-            </Box>
-          )}
+            )}
+          </Box>
         </Box>
       </Box>
     </Box>

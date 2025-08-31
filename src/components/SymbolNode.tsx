@@ -197,34 +197,37 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
           ? Object.values(parsed)
           : [];
 
+      // Respect original handle coordinates inside the SVG instead of forcing them to the nearest edge.
+      // We'll record absolute SVG coordinates (x,y) and use them to position the Handle element
       parsedHandles.forEach((handle: any) => {
         const x = Number(handle.x) || 0;
         const y = Number(handle.y) || 0;
-        // clamp inside viewBox
+        // clamp inside viewBox bounds
         const cx = Math.max(0, Math.min(x, size.w));
         const cy = Math.max(0, Math.min(y, size.h));
 
-        // Distancia a cada borde
+        // Determine nearest edge so React Flow can pick the correct side for anchoring
         const distLeft = cx;
-        const distRight = size.w - cx;
+        const distRight = Math.abs(size.w - cx);
         const distTop = cy;
-        const distBottom = size.h - cy;
+        const distBottom = Math.abs(size.h - cy);
+        let nearest: Position = Position.Left;
+        let minDist = distLeft;
+        if (distRight < minDist) { minDist = distRight; nearest = Position.Right; }
+        if (distTop < minDist) { minDist = distTop; nearest = Position.Top; }
+        if (distBottom < minDist) { minDist = distBottom; nearest = Position.Bottom; }
 
-        const min = Math.min(distLeft, distRight, distTop, distBottom);
-        let position: Position;
-        if (min === distLeft) position = Position.Left;
-        else if (min === distRight) position = Position.Right;
-        else if (min === distTop) position = Position.Top;
-        else position = Position.Bottom;
-
-        const offset = (position === Position.Left || position === Position.Right) ? cy : cx;
-
+        // Store absolute coordinates on the handle object so the renderer can place it exactly
         handles.push({
           id: handle.id,
-          position,
+          position: nearest, // choose the nearest edge as the semantic position
           type: handle.type || 'source',
-          offset
-        });
+          // embed absolute coords for pixel placement
+          // @ts-ignore - ad-hoc fields used for exact placement
+          absoluteX: cx,
+          // @ts-ignore
+          absoluteY: cy,
+        } as any);
       });
     } catch (e) {
       console.warn('Error parsing dynamic handles:', e);
@@ -364,7 +367,7 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
         padding: 0,
       }}
     >
-      {handles.map((h) => {
+  {handles.map((h) => {
         // Invertir el tipo de handle si invertHandles está activo
         const handleType = invertHandles ? (h.type === 'source' ? 'target' : 'source') : h.type;
         
@@ -382,63 +385,87 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
 
         const posStyle: React.CSSProperties = {};
 
-        // Calculate handle position based on original position and rotation
-        const centerX = size.w / 2;
-        const centerY = size.h / 2;
-        const outerOffsetPx =0* HANDLE_SIZE + HANDLE_GAP;
+        // If the dynamic handle provides absolute coordinates (SVG coordinates), use them directly.
+        // Otherwise, fall back to previous edge-offset logic using h.offset.
+        if ((h as any).absoluteX !== undefined && (h as any).absoluteY !== undefined) {
+          // Convert SVG coordinates into wrapper pixel coordinates (1:1 because we set svg width/height to size.w/size.h earlier)
+          let fx = (h as any).absoluteX as number;
+          let fy = (h as any).absoluteY as number;
 
-        // Original position coordinates (before rotation) - align to grid
-        let originalX: number, originalY: number;
+          // Apply flips first
+          if (flipX) fx = size.w - fx;
+          if (flipY) fy = size.h - fy;
 
-        if (h.position === Position.Right) {
-          originalX = snapToGrid(size.w + HANDLE_GAP);
-          originalY = h.offset ?
-            (typeof h.offset === 'number' ? snapToGrid(h.offset) : snapToGrid((parseFloat(h.offset) / 100) * size.h)) :
-            snapToGrid(size.h / 2);
-        } else if (h.position === Position.Left) {
-          originalX = snapToGrid(-outerOffsetPx);
-          originalY = h.offset ?
-            (typeof h.offset === 'number' ? snapToGrid(h.offset) : snapToGrid((parseFloat(h.offset) / 100) * size.h)) :
-            snapToGrid(size.h / 2);
-        } else if (h.position === Position.Top) {
-          originalX = h.offset ?
-            (typeof h.offset === 'number' ? snapToGrid(h.offset) : snapToGrid((parseFloat(h.offset) / 100) * size.w)) :
-            snapToGrid(size.w / 2);
-          originalY = snapToGrid(-outerOffsetPx);
-        } else { // Position.Bottom
-          originalX = h.offset ?
-            (typeof h.offset === 'number' ? snapToGrid(h.offset) : snapToGrid((parseFloat(h.offset) / 100) * size.w)) :
-            snapToGrid(size.w / 2);
-          originalY = snapToGrid(size.h + HANDLE_GAP);
+          // Apply rotation around center
+          if (rotation !== 0) {
+            const rotated = rotatePoint(fx, fy, size.w / 2, size.h / 2, rotation);
+            fx = rotated.x;
+            fy = rotated.y;
+          }
+
+          // Snap to grid if desired
+          fx = snapToGrid(fx);
+          fy = snapToGrid(fy);
+
+          posStyle.left = `${fx}px`;
+          posStyle.top = `${fy}px`;
+          posStyle.transform = 'translate(-50%, -50%)';
+        } else {
+          // fallback: place at edge using previous offset behavior
+          const centerX = size.w / 2;
+          const centerY = size.h / 2;
+          const outerOffsetPx =0* HANDLE_SIZE + HANDLE_GAP;
+          // Original position coordinates (before rotation) - align to grid
+          let originalX: number, originalY: number;
+
+          if (h.position === Position.Right) {
+            originalX = snapToGrid(size.w + HANDLE_GAP);
+            originalY = h.offset ?
+              (typeof h.offset === 'number' ? snapToGrid(h.offset) : snapToGrid((parseFloat(h.offset) / 100) * size.h)) :
+              snapToGrid(size.h / 2);
+          } else if (h.position === Position.Left) {
+            originalX = snapToGrid(-outerOffsetPx);
+            originalY = h.offset ?
+              (typeof h.offset === 'number' ? snapToGrid(h.offset) : snapToGrid((parseFloat(h.offset) / 100) * size.h)) :
+              snapToGrid(size.h / 2);
+          } else if (h.position === Position.Top) {
+            originalX = h.offset ?
+              (typeof h.offset === 'number' ? snapToGrid(h.offset) : snapToGrid((parseFloat(h.offset) / 100) * size.w)) :
+              snapToGrid(size.w / 2);
+            originalY = snapToGrid(-outerOffsetPx);
+          } else { // Position.Bottom
+            originalX = h.offset ?
+              (typeof h.offset === 'number' ? snapToGrid(h.offset) : snapToGrid((parseFloat(h.offset) / 100) * size.w)) :
+              snapToGrid(size.w / 2);
+            originalY = snapToGrid(size.h + HANDLE_GAP);
+          }
+
+          let finalX = originalX;
+          let finalY = originalY;
+
+          // Apply flips first to match the CSS transform order (rotate then flip)
+          if (flipX) {
+            finalX = size.w - finalX;
+          }
+          if (flipY) {
+            finalY = size.h - finalY;
+          }
+
+          // Apply rotation after flips
+          if (rotation !== 0) {
+            const rotated = rotatePoint(finalX, finalY, centerX, centerY, rotation);
+            finalX = rotated.x;
+            finalY = rotated.y;
+          }
+
+          // Snap final positions to grid for better alignment
+          finalX = snapToGrid(finalX);
+          finalY = snapToGrid(finalY);
+
+          posStyle.left = `${finalX}px`;
+          posStyle.top = `${finalY}px`;
+          posStyle.transform = 'translate(-50%, -50%)';
         }
-
-        // Start with original coordinates
-        let finalX = originalX;
-        let finalY = originalY;
-
-        // Apply flips first to match the CSS transform order (rotate then flip)
-        if (flipX) {
-          finalX = size.w - finalX;
-        }
-        if (flipY) {
-          finalY = size.h - finalY;
-        }
-
-        // Apply rotation after flips
-        if (rotation !== 0) {
-          const rotated = rotatePoint(finalX, finalY, centerX, centerY, rotation);
-          finalX = rotated.x;
-          finalY = rotated.y;
-        }
-
-        // Snap final positions to grid for better alignment
-        finalX = snapToGrid(finalX);
-        finalY = snapToGrid(finalY);
-
-        // Set final position
-        posStyle.left = `${finalX}px`;
-        posStyle.top = `${finalY}px`;
-        posStyle.transform = 'translate(-50%, -50%)';
 
         // Calculate handle position with all transformations applied in the same order as CSS
         // Order: original -> flip -> rotate (to match CSS: rotate(angle) scaleX() scaleY())

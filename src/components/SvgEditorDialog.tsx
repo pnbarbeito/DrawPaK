@@ -31,6 +31,41 @@ const SvgEditorDialog: React.FC<Props> = ({
   svgHandles, setSvgHandles, svgMarkup, setSvgMarkup, useEditor, setUseEditor,
   sanitizedSvg, svgElements, onSaveSvgElement, onInsertElement, onDeleteElement
 }) => {
+  // Normalize SVG string for preview/thumbnail: ensure viewBox, remove width/height, set requested display size
+  const normalizeSvgForPreview = (svgStr: string | undefined, targetW: number, targetH: number) => {
+    if (!svgStr) return '';
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(svgStr, 'image/svg+xml');
+      const root = doc.documentElement as unknown as HTMLElement | null;
+      if (!root || root.nodeName.toLowerCase() !== 'svg') return svgStr;
+      const svgEl = root as unknown as SVGElement;
+
+      // If no viewBox but width/height exist, derive viewBox
+      const vb = svgEl.getAttribute('viewBox');
+      const wAttr = svgEl.getAttribute('width');
+      const hAttr = svgEl.getAttribute('height');
+      if (!vb && wAttr && hAttr) {
+        const pw = parseFloat(wAttr as string);
+        const ph = parseFloat(hAttr as string);
+        if (!isNaN(pw) && !isNaN(ph) && pw > 0 && ph > 0) {
+          svgEl.setAttribute('viewBox', `0 0 ${pw} ${ph}`);
+        }
+      }
+
+      // Remove existing width/height so the SVG is flexible, then set explicit thumbnail attributes
+      svgEl.removeAttribute('width');
+      svgEl.removeAttribute('height');
+      svgEl.setAttribute('width', String(targetW));
+      svgEl.setAttribute('height', String(targetH));
+      svgEl.setAttribute('style', `width:${targetW}px;height:${targetH}px;display:block`);
+
+      const serializer = new XMLSerializer();
+      return serializer.serializeToString(svgEl);
+    } catch (e) {
+      return svgStr;
+    }
+  };
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xl" fullWidth>
       <DialogTitle>Crear/Editar Elemento SVG</DialogTitle>
@@ -109,9 +144,9 @@ const SvgEditorDialog: React.FC<Props> = ({
               <Typography variant="subtitle2">Previsualización</Typography>
               <div style={{ border: '1px solid #ddd', padding: 8, borderRadius: 4, background: '#fff' }}>
                 {sanitizedSvg ? (
-                  <div dangerouslySetInnerHTML={{ __html: sanitizedSvg }} />
+                  <div dangerouslySetInnerHTML={{ __html: normalizeSvgForPreview(sanitizedSvg, 160, 160) }} />
                 ) : svgMarkup ? (
-                  <div dangerouslySetInnerHTML={{ __html: svgMarkup }} />
+                  <div dangerouslySetInnerHTML={{ __html: normalizeSvgForPreview(svgMarkup, 160, 160) }} />
                 ) : (
                   <div style={{ color: '#888' }}>Sin contenido</div>
                 )}
@@ -135,7 +170,7 @@ const SvgEditorDialog: React.FC<Props> = ({
             ) : svgElements.map((el) => (
               <Box key={el.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: 6, borderBottom: '1px solid #eee' }}>
                 <div style={{ width: 112, height: 112, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #f0f0f0', padding: 8, boxSizing: 'border-box', background: '#fff' }}>
-                  <div dangerouslySetInnerHTML={{ __html: el.svg || '' }} />
+                  <div dangerouslySetInnerHTML={{ __html: normalizeSvgForPreview(el.svg || '', 96, 96) }} />
                 </div>
                 <div style={{ flex: 1 }}>
                   <Typography variant="body2" style={{ fontWeight: 600 }}>{el.name}</Typography>

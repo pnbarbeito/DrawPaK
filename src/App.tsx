@@ -315,7 +315,43 @@ function FlowApp(): React.ReactElement {
                 console.warn('dompurify no disponible, guardando sin sanitizar');
             }
 
-            const sanitized = DOMPurify ? DOMPurify.sanitize(svgMarkup, { USE_PROFILES: { svg: true } }) : svgMarkup;
+            // Primera sanitización/entrada
+            let sanitized = DOMPurify ? DOMPurify.sanitize(svgMarkup, { USE_PROFILES: { svg: true } }) : svgMarkup;
+
+            // Limpieza adicional: eliminar elementos de la UI del editor antes de persistir
+            try {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(sanitized || '', 'image/svg+xml');
+                const svgEl = doc.querySelector('svg');
+                if (svgEl) {
+                    // remover nodos de editor si quedaron (handles temporales y rects de redimension)
+                    svgEl.querySelectorAll('[data-editor-handle="true"], [data-editor-resize="true"]').forEach(n => n.remove());
+
+                    // intentar asegurar un viewBox útil: si no tiene, pero tiene width/height, derivarlo
+                    const hasViewBox = svgEl.hasAttribute('viewBox') && svgEl.getAttribute('viewBox')?.trim() !== '';
+                    const wAttr = svgEl.getAttribute('width');
+                    const hAttr = svgEl.getAttribute('height');
+                    if (!hasViewBox && wAttr && hAttr) {
+                        const pw = parseFloat(wAttr.toString().replace(/[^0-9.\-]/g, ''));
+                        const ph = parseFloat(hAttr.toString().replace(/[^0-9.\-]/g, ''));
+                        if (!isNaN(pw) && !isNaN(ph) && pw > 0 && ph > 0) {
+                            svgEl.setAttribute('viewBox', `0 0 ${pw} ${ph}`);
+                        }
+                    }
+
+                    // eliminar width/height para que el SVG sea escalable (guardamos viewBox cuando sea posible)
+                    svgEl.removeAttribute('width');
+                    svgEl.removeAttribute('height');
+
+                    const serializer = new XMLSerializer();
+                    sanitized = serializer.serializeToString(svgEl);
+                } else {
+                    // si no encontramos <svg>, no convertir
+                    // sanitized permanece como estaba
+                }
+            } catch (e) {
+                console.warn('Error limpiando SVG antes de guardar:', e);
+            }
 
             const elem: SvgElement = {
                 name: svgName,
