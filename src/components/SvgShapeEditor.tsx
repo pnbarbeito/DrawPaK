@@ -148,8 +148,6 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
   const addLine = () => {
     const id = `shape_${Date.now()}`;
     const ln = defaultLine(id);
-    // add handles at endpoints so endpoints can be dragged
-    //ln.handles = [{ id: `${id}_h1`, x: ln.x1, y: ln.y1, type: 'source' }, { id: `${id}_h2`, x: ln.x2, y: ln.y2, type: 'target' }];
     setShapes(prev => [...prev, ln]);
     setSelected(id);
   };
