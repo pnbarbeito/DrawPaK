@@ -403,6 +403,14 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
             fy = rotated.y;
           }
 
+          // Apply scale around center so handles follow the visual transform
+          if (scale && scale !== 1) {
+            const cx = size.w / 2;
+            const cy = size.h / 2;
+            fx = cx + (fx - cx) * scale;
+            fy = cy + (fy - cy) * scale;
+          }
+
           // Snap to grid if desired
           fx = snapToGrid(fx);
           fy = snapToGrid(fy);
@@ -443,7 +451,7 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
           let finalX = originalX;
           let finalY = originalY;
 
-          // Apply flips first to match the CSS transform order (rotate then flip)
+          // Apply flips first
           if (flipX) {
             finalX = size.w - finalX;
           }
@@ -456,6 +464,12 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
             const rotated = rotatePoint(finalX, finalY, centerX, centerY, rotation);
             finalX = rotated.x;
             finalY = rotated.y;
+          }
+
+          // Apply scale around center so handles follow the visual transform
+          if (scale && scale !== 1) {
+            finalX = centerX + (finalX - centerX) * scale;
+            finalY = centerY + (finalY - centerY) * scale;
           }
 
           // Snap final positions to grid for better alignment

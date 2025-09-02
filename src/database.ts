@@ -28,7 +28,7 @@ export async function initDatabase(): Promise<Database> {
   if (db) return db;
 
   try {
-    db = await Database.load('sqlite:/home/pbarbeito/dev/DrawPak/drawpak.db');
+    db = await Database.load('sqlite:/home/pbarbeito/Dev/DrawPaK/drawpak.db');
 
     // Crear las tablas si no existen
     await db.execute(`
@@ -80,8 +80,7 @@ export async function saveSchema(schema: Schema): Promise<number> {
   const database = await initDatabase();
 
   const result = await database.execute(
-    `INSERT INTO schemas (name, description, nodes, edges) 
-     VALUES (?, ?, ?, ?)`,
+    `INSERT INTO schemas (name, description, nodes, edges) VALUES (?, ?, ?, ?)`,
     [
       schema.name,
       schema.description || '',
@@ -273,12 +272,31 @@ export async function initializeBasicElements(): Promise<void> {
       name: 'Transformador',
       description: 'Transformador básico',
       category: 'transformadores',
-      svg: `<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="60" cy="40" r="25" stroke="#000" strokeWidth="3" fill="none" />
-            <circle cx="60" cy="80" r="25" stroke="#000" strokeWidth="3" fill="none" />
-            <path d="M60 0 L60 15" stroke="#000" strokeWidth="3" />
-            <path d="M60 120 L60 105" stroke="#000" strokeWidth="3" />
-          </svg>`,
+      svg: `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" style="background: rgba(255, 255, 255, 0);">
+        <defs xmlns="http://www.w3.org/2000/svg"/>
+        <g xmlns="http://www.w3.org/2000/svg">
+            <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 60, 40)">
+                <circle xmlns="http://www.w3.org/2000/svg" cx="60" fill-opacity="0" fill="#fff" stroke="#000" r="25" stroke-width="2" cy="40"/>
+            </g>
+        </g>
+        <g xmlns="http://www.w3.org/2000/svg">
+            <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 60, 80)">
+                <circle xmlns="http://www.w3.org/2000/svg" cx="60" fill-opacity="0" fill="#fff" stroke="#000" r="25" stroke-width="2" cy="80"/>
+            </g>
+        </g>
+        <g xmlns="http://www.w3.org/2000/svg">
+            <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 60, 7.5)">
+                <line xmlns="http://www.w3.org/2000/svg" y2="15" y1="0" stroke="#000" x2="60" stroke-width="2" x1="60"/>
+            </g>
+        </g>
+        <g xmlns="http://www.w3.org/2000/svg">
+            <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 60, 112.5)">
+                <line xmlns="http://www.w3.org/2000/svg" y2="105" y1="120" stroke="#000" x2="60" stroke-width="2" x1="60"/>
+                <g xmlns="http://www.w3.org/2000/svg"/>
+            </g>
+        </g>
+    </svg>`,
       handles: JSON.stringify([
         { id: 'top', x: 60, y: 0, type: 'source' },
         { id: 'bottom', x: 60, y: 120, type: 'target' }
@@ -288,14 +306,41 @@ export async function initializeBasicElements(): Promise<void> {
       name: 'Transformador Doble',
       description: 'Transformador con doble salida',
       category: 'transformadores',
-      svg: `<svg viewBox="0 0 120 160" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="60" cy="40" r="25" stroke="#000" strokeWidth="3" fill="none" />
-            <circle cx="40" cy="100" r="20" stroke="#000" strokeWidth="3" fill="none" />
-            <circle cx="80" cy="100" r="20" stroke="#000" strokeWidth="3" fill="none" />
-            <path d="M60 0 L60 15" stroke="#000" strokeWidth="3" />
-            <path d="M40 160 L40 120" stroke="#000" strokeWidth="3" />
-            <path d="M80 160 L80 120" stroke="#000" strokeWidth="3" />
-          </svg>`,
+      svg: `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 160" style="background: rgba(255, 255, 255, 0);">
+          <defs xmlns="http://www.w3.org/2000/svg"/>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 60, 60)">
+                  <circle xmlns="http://www.w3.org/2000/svg" cx="60" fill-opacity="1" fill="#fff" stroke="#000" r="30" stroke-width="2" cy="60"/>
+                  <g xmlns="http://www.w3.org/2000/svg"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 40, 100)">
+                  <circle xmlns="http://www.w3.org/2000/svg" cx="40" fill-opacity="1" fill="#fff" stroke="#000" r="30" stroke-width="2" cy="100"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 80, 100)">
+                  <circle xmlns="http://www.w3.org/2000/svg" cx="80" fill-opacity="1" fill="none" stroke="#000" r="30" stroke-width="2" cy="100"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 60, 15)">
+                  <line xmlns="http://www.w3.org/2000/svg" y2="0" y1="30" stroke="#000" x2="60" stroke-width="2" x1="60"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 40, 145)">
+                  <line xmlns="http://www.w3.org/2000/svg" y2="130" y1="160" stroke="#000" x2="40" stroke-width="2" x1="40"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 80, 145)">
+                  <line xmlns="http://www.w3.org/2000/svg" y2="130" y1="160" stroke="#000" x2="80" stroke-width="2" x1="80"/>
+              </g>
+          </g>
+      </svg>`,
       handles: JSON.stringify([
         { id: 'top', x: 60, y: 0, type: 'source' },
         { id: 'left', x: 40, y: 160, type: 'target' },
@@ -308,34 +353,183 @@ export async function initializeBasicElements(): Promise<void> {
   const proteccion = [
     {
       name: 'Interruptor',
-      description: 'Interruptor de protección',
+      description: 'Interruptor',
       category: 'proteccion',
-      svg: `<svg viewBox="0 0 120 80" xmlns="http://www.w3.org/2000/svg">
-            <path d="M0 40 L30 40" stroke="#000" strokeWidth="4" />
-            <path d="M30 40 L90 20" stroke="#000" strokeWidth="4" />
-            <path d="M90 40 L120 40" stroke="#000" strokeWidth="4" />
-            <circle cx="30" cy="40" r="4" fill="#000" />
-            <circle cx="90" cy="40" r="4" fill="#000" />
-          </svg>`,
+      svg: `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80" style="background: rgba(255, 255, 255, 0);">
+          <defs xmlns="http://www.w3.org/2000/svg"/>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 30, 40)">
+                  <circle xmlns="http://www.w3.org/2000/svg" stroke="#000" stroke-width="1" r="4" fill="#000" cx="30" cy="40"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 90, 40)">
+                  <circle xmlns="http://www.w3.org/2000/svg" stroke="#000" stroke-width="1" r="4" fill="#000" cx="90" cy="40"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 15, 40)">
+                  <line xmlns="http://www.w3.org/2000/svg" y1="40" stroke="#000" y2="40" stroke-width="2" x1="0" x2="30"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 60, 30)">
+                  <line xmlns="http://www.w3.org/2000/svg" y1="40" stroke="#000" y2="20" stroke-width="2" x1="30" x2="90"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 105, 40)">
+                  <line xmlns="http://www.w3.org/2000/svg" y1="40" stroke="#000" y2="40" stroke-width="2" x1="90" x2="120"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 60, 35)">
+                  <rect xmlns="http://www.w3.org/2000/svg" x="20" y="10" stroke="#000" stroke-width="2" fill="rgba(255, 255, 255, 0)" width="80" fill-opacity="0" height="50"/>
+                  <g xmlns="http://www.w3.org/2000/svg"/>
+              </g>
+          </g>
+      </svg>`,
       handles: JSON.stringify([
-        { id: 'left', x: 0, y: 40, type: 'source' },
-        { id: 'right', x: 120, y: 40, type: 'target' }
+        {
+          "id": "left",
+          "type": "source",
+          "x": 0,
+          "y": 40
+        },
+        {
+          "id": "right",
+          "type": "target",
+          "x": 120,
+          "y": 40
+        }
+      ])
+    },
+    {
+      name: 'Interruptor Extraido',
+      description: 'Interruptor',
+      category: 'proteccion',
+      svg: `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" style="background: rgba(255, 255, 255, 0);">
+          <defs xmlns="http://www.w3.org/2000/svg"/>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 100, 46)">
+                  <rect xmlns="http://www.w3.org/2000/svg" x="60" y="21" stroke="#000" stroke-width="2" fill="rgba(255, 255, 255, 0)" width="80" height="50"/>
+                  <g xmlns="http://www.w3.org/2000/svg"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 70, 50)">
+                  <circle xmlns="http://www.w3.org/2000/svg" stroke="#000" stroke-width="1" r="4" fill="#000" cx="70" cy="50"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 130, 50)">
+                  <circle xmlns="http://www.w3.org/2000/svg" stroke="#000" stroke-width="1" r="4" fill="#000" cx="130" cy="50"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 15, 100)">
+                  <line xmlns="http://www.w3.org/2000/svg" y1="100" stroke="#000" y2="100" stroke-width="2" x1="0" x2="30"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 100, 40)">
+                  <line xmlns="http://www.w3.org/2000/svg" y1="50" stroke="#000" y2="30" stroke-width="2" x1="70" x2="130"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 187, 100)">
+                  <line xmlns="http://www.w3.org/2000/svg" y1="100" stroke="#000" y2="100" stroke-width="2" x1="172" x2="202"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 50, 100)">
+                  <circle xmlns="http://www.w3.org/2000/svg" stroke="#000" stroke-width="2" r="20" fill="rgba(255, 255, 255, 0)" cx="50" fill-opacity="0" cy="100"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 152, 100)">
+                  <circle xmlns="http://www.w3.org/2000/svg" stroke="#000" stroke-width="2" r="20" fill="rgba(255, 255, 255, 0)" cx="152" fill-opacity="0" cy="100"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 100, 97.5)">
+                  <rect xmlns="http://www.w3.org/2000/svg" x="40" y="75" stroke="#ffffff" stroke-width="2" fill="#ffffff" width="120" fill-opacity="1" height="45"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 55, 50)">
+                  <line xmlns="http://www.w3.org/2000/svg" y1="50" stroke="#000" y2="50" stroke-width="2" x1="40" x2="70"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 145, 50)">
+                  <line xmlns="http://www.w3.org/2000/svg" y1="50" stroke="#000" y2="50" stroke-width="2" x1="130" x2="160"/>
+              </g>
+          </g>
+      </svg>`,
+      handles: JSON.stringify([
+        {
+          "id": "left",
+          "type": "source",
+          "x": 0,
+          "y": 100
+        },
+        {
+          "id": "right",
+          "type": "target",
+          "x": 200,
+          "y": 100
+        }
       ])
     },
     {
       name: 'Seccionador',
       description: 'Seccionador de línea',
       category: 'proteccion',
-      svg: `<svg viewBox="0 0 80 40" xmlns="http://www.w3.org/2000/svg">
-            <path d="M0 20 L25 20" stroke="#000" strokeWidth="4" />
-            <path d="M25 20 L55 10" stroke="#000" strokeWidth="4" />
-            <path d="M55 20 L80 20" stroke="#000" strokeWidth="4" />
-            <circle cx="25" cy="20" r="3" fill="#000" />
-            <circle cx="55" cy="20" r="3" fill="#000" />
-          </svg>`,
+      svg: `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80" style="background: rgba(255, 255, 255, 0);">
+          <defs xmlns="http://www.w3.org/2000/svg"/>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 30, 40)">
+                  <circle xmlns="http://www.w3.org/2000/svg" stroke="#000" stroke-width="1" r="4" fill="#000" cx="30" cy="40"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 90, 40)">
+                  <circle xmlns="http://www.w3.org/2000/svg" stroke="#000" stroke-width="1" r="4" fill="#000" cx="90" cy="40"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 15, 40)">
+                  <line xmlns="http://www.w3.org/2000/svg" y1="40" stroke="#000" y2="40" stroke-width="2" x1="0" x2="30"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 60, 30)">
+                  <line xmlns="http://www.w3.org/2000/svg" y1="40" stroke="#000" y2="20" stroke-width="2" x1="30" x2="90"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 105, 40)">
+                  <line xmlns="http://www.w3.org/2000/svg" y1="40" stroke="#000" y2="40" stroke-width="2" x1="90" x2="120"/>
+              </g>
+          </g>
+      </svg>`,
       handles: JSON.stringify([
-        { id: 'left', x: 0, y: 20, type: 'source' },
-        { id: 'right', x: 80, y: 20, type: 'source' }
+        {
+          "id": "left",
+          "type": "source",
+          "x": 0,
+          "y": 40
+        },
+        {
+          "id": "right",
+          "type": "target",
+          "x": 120,
+          "y": 40
+        }
       ])
     }
   ];
@@ -343,36 +537,207 @@ export async function initializeBasicElements(): Promise<void> {
   // Infraestructura
   const infraestructura = [
     {
-      name: 'Barras',
-      description: 'Conexión a tierra',
+      name: 'Barra Simple',
+      description: 'Barras de conexión',
       category: 'infraestructura',
-      svg: `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-              <rect x="37.5" y="0" width="4" height="200" fill="#000" />
-              <rect x="77.5" y="0" width="4" height="200" fill="#000" />
-              <path d="M38 40 L200 40" stroke="#000" strokeWidth="2" />
-              <path d="M78 160 L200 160" stroke="#000" strokeWidth="2" />
-            </svg>`,
+      svg: `
+      <svg xmlns="http://www.w3.org/2000/svg" style="background: rgba(255, 255, 255, 0);" viewBox="0 0 200 200">
+          <defs xmlns="http://www.w3.org/2000/svg"/>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 39.5, 100)">
+                  <rect xmlns="http://www.w3.org/2000/svg" x="37.5" height="200" fill="#000" stroke-width="1" y="0" width="4" stroke="#000"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 120, 100)">
+                  <line xmlns="http://www.w3.org/2000/svg" y1="100" x2="200" stroke-width="2" x1="40" y2="100" stroke="#000"/>.
+                  <g xmlns="http://www.w3.org/2000/svg"/>
+              </g>
+          </g>
+      </svg>`,
       handles: JSON.stringify([
-        { id: 't_left', x: 40, y: 0, type: 'source' },
-        { id: 't_right', x: 80, y: 0, type: 'source' },
-        { id: 'r_top', x: 200, y: 40, type: 'target' },
-        { id: 'r_bottom', x: 200, y: 160, type: 'target' },
-        { id: 'b_left', x: 40, y: 200, type: 'target' },
-        { id: 'b_right', x: 80, y: 200, type: 'target' }
+        {
+          "id": "h_1756826687664",
+          "type": "target",
+          "x": 40,
+          "y": 200
+        },
+        {
+          "id": "h_1756829757274",
+          "type": "source",
+          "x": 40,
+          "y": 0
+        },
+        {
+          "id": "h_1756829764787",
+          "type": "target",
+          "x": 200,
+          "y": 100
+        }
       ])
     },
     {
-      name: 'Puesta a Tierra',
-      description: 'Conexión a tierra',
+      name: 'Barra Doble',
+      description: 'Barras de conexión',
       category: 'infraestructura',
-      svg: `<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
-              <path d="M20 0 L20 25" stroke="#000" strokeWidth="3" />
-              <path d="M10 25 L30 25" stroke="#000" strokeWidth="4" />
-              <path d="M12 30 L28 30" stroke="#000" strokeWidth="3" />
-              <path d="M14 35 L26 35" stroke="#000" strokeWidth="2" />
-            </svg>`,
+      svg: `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" style="background: rgba(255, 255, 255, 0);">
+          <defs xmlns="http://www.w3.org/2000/svg"/>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 39.5, 100)">
+                  <rect xmlns="http://www.w3.org/2000/svg" x="37.5" y="0" width="4" height="200" fill="#000" stroke="#000" stroke-width="1"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 79.5, 100)">
+                  <rect xmlns="http://www.w3.org/2000/svg" x="77.5" y="0" width="4" height="200" fill="#000" stroke="#000" stroke-width="1"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 120, 40)">
+                  <line xmlns="http://www.w3.org/2000/svg" y2="40" y1="40" stroke="#000" x2="200" stroke-width="2" x1="40"/>
+                  <g xmlns="http://www.w3.org/2000/svg"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 139, 160)">
+                  <line xmlns="http://www.w3.org/2000/svg" y2="160" y1="160" stroke="#000" x2="200" stroke-width="2" x1="78"/>
+              </g>
+          </g>
+      </svg>`,
       handles: JSON.stringify([
-        { id: 'top', x: 20, y: 0, type: 'source' }
+        {
+          "id": "h_1756826687664",
+          "type": "target",
+          "x": 40,
+          "y": 200
+        },
+        {
+          "id": "h_1756826687995",
+          "type": "source",
+          "x": 40,
+          "y": 0
+        },
+        {
+          "id": "h_1756826670572",
+          "type": "target",
+          "x": 80,
+          "y": 200
+        },
+        {
+          "id": "h_1756826671210",
+          "type": "source",
+          "x": 80,
+          "y": 0
+        },
+        {
+          "id": "r_top",
+          "type": "target",
+          "x": 200,
+          "y": 40
+        },
+        {
+          "id": "b_right",
+          "type": "target",
+          "x": 200,
+          "y": 160
+        }
+      ])
+    },
+    {
+      name: 'Barra Triple',
+      description: 'Barras de conexión',
+      category: 'infraestructura',
+      svg: `
+      <svg xmlns="http://www.w3.org/2000/svg" style="background: rgba(255, 255, 255, 0);" viewBox="0 0 200 200">
+          <defs xmlns="http://www.w3.org/2000/svg"/>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 20.5, 100)">
+                  <rect xmlns="http://www.w3.org/2000/svg" x="18.5" height="200" fill="#000" stroke-width="1" y="0" width="4" stroke="#000"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 60.5, 100)">
+                  <rect xmlns="http://www.w3.org/2000/svg" x="58.5" height="200" fill="#000" stroke-width="1" y="0" width="4" stroke="#000"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 100, 100)">
+                  <rect xmlns="http://www.w3.org/2000/svg" x="98" height="200" fill="#000" stroke-width="1" y="0" width="4" stroke="#000"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 150, 160)">
+                  <line xmlns="http://www.w3.org/2000/svg" y1="160" x2="200" stroke-width="2" x1="100" y2="160" stroke="#000"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 110, 40)">
+                  <line xmlns="http://www.w3.org/2000/svg" y1="40" x2="200" stroke-width="2" x1="20" y2="40" stroke="#000"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 130, 100)">
+                  <line xmlns="http://www.w3.org/2000/svg" y1="100" x2="200" stroke-width="2" x1="60" y2="100" stroke="#000"/>
+                  <g xmlns="http://www.w3.org/2000/svg"/>
+              </g>
+          </g>
+      </svg>`,
+      handles: JSON.stringify([
+        {
+          "id": "h_1756826687664",
+          "type": "target",
+          "x": 20,
+          "y": 200
+        },
+        {
+          "id": "h_1756830053495",
+          "type": "source",
+          "x": 20,
+          "y": 0
+        },
+        {
+          "id": "h_1756830129231",
+          "type": "target",
+          "x": 60,
+          "y": 200
+        },
+        {
+          "id": "h_1756826687995",
+          "type": "source",
+          "x": 60,
+          "y": 0
+        },
+        {
+          "id": "h_1756826671210",
+          "type": "source",
+          "x": 100,
+          "y": 0
+        },
+        {
+          "id": "r_top",
+          "type": "target",
+          "x": 200,
+          "y": 40
+        },
+        {
+          "id": "h_1756826670572",
+          "type": "target",
+          "x": 100,
+          "y": 200
+        },
+        {
+          "id": "b_right",
+          "type": "target",
+          "x": 200,
+          "y": 160
+        },
+        {
+          "id": "h_1756830118484",
+          "type": "target",
+          "x": 200,
+          "y": 100
+        }
       ])
     }
   ];
@@ -380,16 +745,93 @@ export async function initializeBasicElements(): Promise<void> {
   // Seguridad
   const seguridad = [
     {
-      name: 'Candado de Seguridad',
+      name: 'Candado',
       description: 'Dispositivo de bloqueo',
       category: 'seguridad',
-      svg: `<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
-            <path d="M15 25 L15 15 A15 15 0 0 1 45 15 L45 25" stroke="#000" strokeWidth="4" fill="none" />
-            <rect x="10" y="25" width="40" height="25" fill="#ffd700" stroke="#000" strokeWidth="3" />
-            <circle cx="30" cy="37" r="4" fill="#000" />
-            <path d="M30 40 L30 45" stroke="#000" strokeWidth="3" />
-          </svg>`,
-      handles: "{}"
+      svg: `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 60" style="background: rgba(255, 255, 255, 0);">
+          <defs xmlns="http://www.w3.org/2000/svg"/>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 30, 20)">
+                  <circle xmlns="http://www.w3.org/2000/svg" stroke="#000" r="14" cy="20" cx="30" fill="rgba(255, 255, 255, 0)" stroke-width="2"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 30, 43.5)">
+                  <rect xmlns="http://www.w3.org/2000/svg" height="25" stroke="#000" fill="#62a0ea" stroke-width="2" y="31" width="40" x="10"/>
+                  <g xmlns="http://www.w3.org/2000/svg"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 30, 24)">
+                  <rect xmlns="http://www.w3.org/2000/svg" height="10" stroke="#ffffff" fill="#ffffff" stroke-width="2" y="19" width="40" x="10" fill-opacity="1"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 16, 24.5)">
+                  <line xmlns="http://www.w3.org/2000/svg" stroke="#000" y1="32" stroke-width="2" y2="17" x1="16" x2="16"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 44, 24)">
+                  <line xmlns="http://www.w3.org/2000/svg" stroke="#000" y1="30" stroke-width="2" y2="18" x1="44" x2="44"/>
+              </g>
+          </g>
+      </svg>`,
+      handles: "[]"
+    },
+    {
+      name: 'Bloqueo',
+      description: 'Zona de bloqueo',
+      category: 'seguridad',
+      svg: `
+      <svg xmlns="http://www.w3.org/2000/svg" style="background: rgba(255, 255, 255, 0);" viewBox="0 0 80 80">
+          <defs xmlns="http://www.w3.org/2000/svg"/>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 40, 40)">
+                  <circle xmlns="http://www.w3.org/2000/svg" cx="40" stroke="#3584e4" stroke-width="2" cy="40" fill="rgba(255, 255, 255, 0)" r="38"/>
+              </g>
+          </g>
+      </svg>`,
+      handles: "[]"
+    },
+    {
+      name: 'Puesta a Tierra',
+      description: 'Conexión a tierra',
+      category: 'seguridad',
+      svg: `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" style="background: rgba(255, 255, 255, 0);">
+          <defs xmlns="http://www.w3.org/2000/svg"/>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 20, 10)">
+                  <line xmlns="http://www.w3.org/2000/svg" y2="20" y1="0" stroke="#000" x2="20" stroke-width="2" x1="20"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 20, 20)">
+                  <line xmlns="http://www.w3.org/2000/svg" y2="20" y1="20" stroke="#000" x2="40" stroke-width="2" x1="0"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 20, 30)">
+                  <line xmlns="http://www.w3.org/2000/svg" y2="30" y1="30" stroke="#000" x2="28" stroke-width="2" x1="12"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 20, 35)">
+                  <line xmlns="http://www.w3.org/2000/svg" y2="35" y1="35" stroke="#000" x2="24" stroke-width="2" x1="16"/>
+                  <g xmlns="http://www.w3.org/2000/svg"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 20, 25)">
+                  <line xmlns="http://www.w3.org/2000/svg" y2="25" y1="25" stroke="#000" x2="36" stroke-width="2" x1="4"/>
+              </g>
+          </g>
+      </svg>`,
+      handles: JSON.stringify([
+        { id: 'top', x: 20, y: 0, type: 'source' }
+      ])
     }
   ];
 

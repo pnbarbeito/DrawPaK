@@ -501,13 +501,30 @@ function FlowApp(): React.ReactElement {
     // Funciones de persistencia
     const saveToLocalStorage = useCallback((currentNodes: Node<ElectNodeData>[], currentEdges: any[], schemaId: number | null = null, schemaName: string = '') => {
         try {
+            // Attempt to measure current canvas size from wrapper if available
+            let canvasWidth: number | null = null;
+            let canvasHeight: number | null = null;
+            try {
+                if (reactFlowWrapper.current) {
+                    const rect = reactFlowWrapper.current.getBoundingClientRect();
+                    canvasWidth = Math.round(rect.width);
+                    canvasHeight = Math.round(rect.height);
+                }
+            } catch (e) {
+                // ignore measurement errors
+            }
+
             const schemaData = {
                 nodes: currentNodes,
                 edges: currentEdges,
                 timestamp: Date.now(),
                 currentSchemaId: schemaId || currentSchemaId,
-                currentSchemaName: schemaName || currentSchemaName
+                currentSchemaName: schemaName || currentSchemaName,
+                currentSchemaDescription: schemaDescription || '',
+                canvasWidth: canvasWidth,
+                canvasHeight: canvasHeight
             };
+
             localStorage.setItem(STORAGE_KEY, JSON.stringify(schemaData));
 
             // Guardar también el ID del esquema actual por separado
@@ -521,7 +538,7 @@ function FlowApp(): React.ReactElement {
         } catch (error) {
             console.error('Error guardando en localStorage:', error);
         }
-    }, [currentSchemaId, currentSchemaName]);
+    }, [currentSchemaId, currentSchemaName, schemaDescription, reactFlowWrapper]);
 
     const loadFromLocalStorage = useCallback(() => {
         try {
@@ -538,16 +555,22 @@ function FlowApp(): React.ReactElement {
                     setCurrentSchemaId(schemaData.currentSchemaId);
                 }
 
-                // Establecer el nombre del esquema actual si existe
+                // Establecer el nombre y la descripción del esquema actual si existen
                 if (schemaData.currentSchemaName) {
                     setCurrentSchemaName(schemaData.currentSchemaName);
+                }
+                if (schemaData.currentSchemaDescription) {
+                    setSchemaDescription(schemaData.currentSchemaDescription);
                 }
 
                 return {
                     nodes: schemaData.nodes || [],
                     edges: schemaData.edges || [],
                     currentSchemaId: Number(savedSchemaId) || schemaData.currentSchemaId || null,
-                    currentSchemaName: schemaData.currentSchemaName || ''
+                    currentSchemaName: schemaData.currentSchemaName || '',
+                    currentSchemaDescription: schemaData.currentSchemaDescription || '',
+                    canvasWidth: typeof schemaData.canvasWidth === 'number' ? schemaData.canvasWidth : null,
+                    canvasHeight: typeof schemaData.canvasHeight === 'number' ? schemaData.canvasHeight : null
                 };
             }
         } catch (error) {

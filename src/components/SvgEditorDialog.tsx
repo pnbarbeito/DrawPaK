@@ -1,7 +1,9 @@
 import React from 'react';
 import { Box, Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, FormControlLabel, Checkbox, Typography, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
 import SvgShapeEditor from './SvgShapeEditor';
-
+import SaveIcon from '@mui/icons-material/Save';
+import DeleteIcon from '@mui/icons-material/Delete';
+import CloseIcon from '@mui/icons-material/Close';
 type Props = {
   open: boolean;
   onClose: () => void;
@@ -33,6 +35,24 @@ const SvgEditorDialog: React.FC<Props> = ({
   const [editorReloadKey, setEditorReloadKey] = React.useState<number>(Date.now());
 
   const STORAGE_KEY = 'svgShapeEditor.draft.v1';
+
+  const handleClearAll = () => {
+    try {
+      // Limpiar campos externos
+      setSvgName('');
+      setSvgDescription('');
+      setSvgCategory('custom');
+      setSvgHandles('');
+      setSvgMarkup('');
+
+      // Eliminar borrador del editor gráfico y forzar remount
+      localStorage.removeItem(STORAGE_KEY);
+      setUseEditor(true);
+      setEditorReloadKey(Date.now());
+    } catch (e) {
+      console.error('Error limpiando editor SVG', e);
+    }
+  };
 
   const copyElementToEditor = (el: any) => {
     // build a minimal draft payload compatible with SvgShapeEditor
@@ -109,6 +129,42 @@ const SvgEditorDialog: React.FC<Props> = ({
         const strokeW = parseFloat(lEl.getAttribute('stroke-width') || '1');
         const rotation = parseTransformRotation(lEl);
         shapes.push({ id: `shape_import_line_${el.id}_${idx}_${Date.now()}`, type: 'line', x1, y1, x2, y2, fill: false, fillColor: 'none', strokeColor: stroke, strokeWidth: strokeW || 1, rotation: rotation || 0, handles: [] });
+      });
+
+      // polyline: parse numeric points robustly and treat first two points as a line if available
+      Array.from(doc.querySelectorAll('polyline')).forEach((pEl, idx) => {
+        const pts = (pEl.getAttribute('points') || '').trim();
+        if (!pts) return;
+        // extract all numbers and pair them
+        const nums = pts.match(/[+-]?(?:\d*\.)?\d+(?:[eE][+-]?\d+)?/g)?.map(n => parseFloat(n)) || [];
+        if (nums.length >= 4) {
+          const x1 = nums[0];
+          const y1 = nums[1];
+          const x2 = nums[2];
+          const y2 = nums[3];
+          const stroke = pEl.getAttribute('stroke') || '#000';
+          const strokeW = parseFloat(pEl.getAttribute('stroke-width') || '1');
+          const rotation = parseTransformRotation(pEl);
+          shapes.push({ id: `shape_import_polyline_${el.id}_${idx}_${Date.now()}`, type: 'line', x1, y1, x2, y2, fill: false, fillColor: 'none', strokeColor: stroke, strokeWidth: strokeW || 1, rotation: rotation || 0, handles: [] });
+        }
+      });
+
+      // path: try to parse simple paths by extracting numeric coordinates and using first two points
+      Array.from(doc.querySelectorAll('path')).forEach((pathEl, idx) => {
+        const d = (pathEl.getAttribute('d') || '').trim();
+        if (!d) return;
+        // extract numbers (handles various separators and scientific notation)
+        const nums = d.match(/[+-]?(?:\d*\.)?\d+(?:[eE][+-]?\d+)?/g)?.map(n => parseFloat(n)) || [];
+        if (nums.length >= 4) {
+          const x1 = nums[0];
+          const y1 = nums[1];
+          const x2 = nums[2];
+          const y2 = nums[3];
+          const stroke = pathEl.getAttribute('stroke') || '#000';
+          const strokeW = parseFloat(pathEl.getAttribute('stroke-width') || '1');
+          const rotation = parseTransformRotation(pathEl);
+          shapes.push({ id: `shape_import_path_${el.id}_${idx}_${Date.now()}`, type: 'line', x1, y1, x2, y2, fill: false, fillColor: 'none', strokeColor: stroke, strokeWidth: strokeW || 1, rotation: rotation || 0, handles: [] });
+        }
       });
 
       // If we parsed at least one supported shape, assign handles to nearest shape center
@@ -201,7 +257,9 @@ const SvgEditorDialog: React.FC<Props> = ({
   };
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xl" fullWidth>
-      <DialogTitle>Crear/Editar Elemento SVG</DialogTitle>
+      <DialogTitle sx={{ textAlign: 'center', backgroundColor: '#1976d2', color: '#fff', fontSize: 18, fontWeight: 400, padding: '12px 16px' }}>
+        Crear/Editar Elemento SVG
+        </DialogTitle>
       <DialogContent>
         <TextField
           autoFocus
@@ -320,8 +378,25 @@ const SvgEditorDialog: React.FC<Props> = ({
         </Box>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Cancelar</Button>
-        <Button onClick={onSaveSvgElement} variant="contained">Guardar elemento SVG</Button>
+        <Button onClick={handleClearAll} color="error" startIcon={<DeleteIcon />}>Limpiar</Button>
+        <Button onClick={onClose} color="warning" startIcon={<CloseIcon />}>Cancelar</Button>
+        <Button
+          onClick={async () => {
+            try {
+              // call parent's save handler (may be sync or async)
+              await Promise.resolve(onSaveSvgElement());
+              // If save succeeded, clear the editor inputs and draft
+              try { handleClearAll(); } catch (e) { /* ignore */ }
+            } catch (e) {
+              console.error('Error saving SVG element', e);
+            } finally {
+              // notify others that svg elements changed so palettes can refresh
+              try { window.dispatchEvent(new CustomEvent('svg-elements-updated')); } catch (e) { /* ignore */ }
+            }
+          }}
+          startIcon={<SaveIcon />}
+          variant="contained"
+        >Guardar</Button>
       </DialogActions>
     </Dialog>
   );

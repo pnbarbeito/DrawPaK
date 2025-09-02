@@ -11,6 +11,7 @@ type BaseShape = {
   type: 'rect' | 'circle' | 'line';
   fill?: boolean;
   fillColor?: string;
+  fillOpacity?: number;
   strokeColor?: string;
   strokeWidth?: number;
   rotation?: number; // degrees
@@ -29,13 +30,13 @@ type Props = {
 };
 
 // GRID is the snapping resolution inside the editor (px)
-const GRID = 10;
+const GRID = 5;
 // GRID_SIZE visual grid to match diagram GRID (px)
 const GRID_SIZE = 20;
 
-const defaultRect = (id: string): RectShape => ({ id, type: 'rect', x: 20, y: 20, w: 60, h: 40, fill: true, fillColor: 'rgba(255, 255, 255, 0)', strokeColor: '#000', strokeWidth: 2, rotation: 0, handles: [] });
-const defaultCircle = (id: string): CircleShape => ({ id, type: 'circle', x: 60, y: 60, r: 30, fill: true, fillColor: 'rgba(255, 255, 255, 0)', strokeColor: '#000', strokeWidth: 2, rotation: 0, handles: [] });
-const defaultLine = (id: string): LineShape => ({ id, type: 'line', x1: 60, y1: 80, x2: 60, y2: 40, fill: false, fillColor: '#000000', strokeColor: '#000', strokeWidth: 2, rotation: 0, handles: [] });
+const defaultRect = (id: string): RectShape => ({ id, type: 'rect', x: 20, y: 20, w: 60, h: 40, fill: true, fillColor: 'rgba(255, 255, 255, 0)', fillOpacity: 0, strokeColor: '#000', strokeWidth: 2, rotation: 0, handles: [] });
+const defaultCircle = (id: string): CircleShape => ({ id, type: 'circle', x: 60, y: 60, r: 30, fill: true, fillColor: 'rgba(255, 255, 255, 0)', fillOpacity: 0, strokeColor: '#000', strokeWidth: 2, rotation: 0, handles: [] });
+const defaultLine = (id: string): LineShape => ({ id, type: 'line', x1: 60, y1: 80, x2: 60, y2: 40, fill: false, fillColor: '#000000', fillOpacity: 1, strokeColor: '#000', strokeWidth: 2, rotation: 0, handles: [] });
 
 const DISPLAY_SCALE = 3;
 const STORAGE_KEY = 'svgShapeEditor.draft.v1';
@@ -247,7 +248,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
             // deep clone shape and handles
             const cloneShape: Shape = JSON.parse(JSON.stringify(shape));
             clipboardRef.current = [cloneShape];
-    
+
           }
         }
         return;
@@ -362,7 +363,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
       updateDragState({ mode: 'move', shapeId: shape.id, offsetX: svgP.x - shape.x1, offsetY: svgP.y - shape.y1 });
     }
 
-    
+
     // attach global listeners so dragging keeps working even if pointer leaves the svg
     if (!windowListenersAttached.current) {
       window.addEventListener('mousemove', handleWindowMouseMove);
@@ -374,7 +375,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
   const onMouseDownHandle = (e: React.MouseEvent, shapeId: string, handleId: string) => {
     e.stopPropagation();
     if (e.button !== 0) return;
-    
+
     updateDragState({ mode: 'handle', shapeId, handleId });
     if (!windowListenersAttached.current) {
       window.addEventListener('mousemove', handleWindowMouseMove);
@@ -387,7 +388,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
     e.stopPropagation();
     if (e.button !== 0) return;
     setSelected(shape.id);
-    
+
     updateDragState({ mode: 'resize', shapeId: shape.id, corner, offsetX: 0, offsetY: 0 });
     if (!windowListenersAttached.current) {
       window.addEventListener('mousemove', handleWindowMouseMove);
@@ -403,7 +404,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
 
     // Marcar que hubo movimiento real para prevenir clicks que deseleccionen
     justFinishedDrag.current = true;
-    
+
 
     setShapes(prev => prev.map(s => {
       const currentDrag = dragStateRef.current;
@@ -539,7 +540,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
 
     // Marcar que hubo movimiento real para prevenir clicks que deseleccionen
     justFinishedDrag.current = true;
-    
+
 
     setShapes(prev => prev.map(s => {
       const currentDrag = dragStateRef.current;
@@ -593,7 +594,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
     const draggedShapeId = dragStateRef.current?.shapeId;
     updateDragState(null);
     dragStartPos.current = null;
-    
+
 
     // cleanup global listeners immediately to avoid window handlers running after SVG up
     if (windowListenersAttached.current) {
@@ -628,6 +629,55 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
 
   const deleteHandle = (shapeId: string, handleId: string) => {
     setShapes(prev => prev.map(s => s.id === shapeId ? { ...s, handles: s.handles.filter(h => h.id !== handleId) } : s));
+  };
+
+  // Z-order helpers: lower index = back, higher index = front
+  const bringToFront = (id: string) => {
+    setShapes(prev => {
+      const idx = prev.findIndex(s => s.id === id);
+      if (idx === -1 || idx === prev.length - 1) return prev;
+      const item = prev[idx];
+      const next = prev.slice(0, idx).concat(prev.slice(idx + 1));
+      return [...next, item];
+    });
+    setTimeout(exportSvg, 50);
+  };
+
+  const sendToBack = (id: string) => {
+    setShapes(prev => {
+      const idx = prev.findIndex(s => s.id === id);
+      if (idx <= 0) return prev;
+      const item = prev[idx];
+      const next = prev.slice(0, idx).concat(prev.slice(idx + 1));
+      return [item, ...next];
+    });
+    setTimeout(exportSvg, 50);
+  };
+
+  const moveUp = (id: string) => {
+    setShapes(prev => {
+      const idx = prev.findIndex(s => s.id === id);
+      if (idx === -1 || idx >= prev.length - 1) return prev;
+      const copy = prev.slice();
+      const tmp = copy[idx + 1];
+      copy[idx + 1] = copy[idx];
+      copy[idx] = tmp;
+      return copy;
+    });
+    setTimeout(exportSvg, 50);
+  };
+
+  const moveDown = (id: string) => {
+    setShapes(prev => {
+      const idx = prev.findIndex(s => s.id === id);
+      if (idx <= 0) return prev;
+      const copy = prev.slice();
+      const tmp = copy[idx - 1];
+      copy[idx - 1] = copy[idx];
+      copy[idx] = tmp;
+      return copy;
+    });
+    setTimeout(exportSvg, 50);
   };
 
   const updateSelectedProp = (patch: Partial<Shape>) => {
@@ -694,6 +744,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
         <Box>
           <Button variant="outlined" onClick={addHandleToSelected} startIcon={<CableIcon />} disabled={!selected}>Añadir handle</Button>
         </Box>
+        {/* Z-order controls moved into the selected-shape properties panel */}
         <Box sx={{ ml: 'auto', display: 'flex', gap: 1 }}>
           <TextField label="Ancho" type="number" size="small" value={canvasWidth} onChange={(e) => setCanvasWidth(Number(e.target.value) || 100)} sx={{ width: 100, mr: 1 }} />
           <TextField label="Alto" type="number" size="small" value={canvasHeight} onChange={(e) => setCanvasHeight(Number(e.target.value) || 100)} sx={{ width: 100 }} />
@@ -712,13 +763,13 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
             onMouseDown={(e) => {
               const target = e.target as Element;
               if (target === svgRef.current) {
-                  setTimeout(() => {
-                    if (!justFinishedDrag.current) {
-                      setSelected(null);
-                      updateDragState(null);
-                    }
-                  }, 10);
-                }
+                setTimeout(() => {
+                  if (!justFinishedDrag.current) {
+                    setSelected(null);
+                    updateDragState(null);
+                  }
+                }, 10);
+              }
             }}
             onMouseMove={onMouseMove}
             onMouseUp={onMouseUp}
@@ -750,6 +801,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
                         width={rs.w}
                         height={rs.h}
                         fill={rs.fill ? rs.fillColor : 'none'}
+                        fillOpacity={typeof rs.fillOpacity === 'number' ? rs.fillOpacity : undefined}
                         stroke={rs.strokeColor}
                         strokeWidth={rs.strokeWidth}
                         onMouseDown={(e) => onMouseDownShape(e, rs)}
@@ -777,6 +829,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
                         cy={cs.y}
                         r={cs.r}
                         fill={cs.fill ? cs.fillColor : 'none'}
+                        fillOpacity={typeof cs.fillOpacity === 'number' ? cs.fillOpacity : undefined}
                         stroke={cs.strokeColor}
                         strokeWidth={cs.strokeWidth}
                         onMouseDown={(e) => onMouseDownShape(e, cs)}
@@ -848,6 +901,10 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
                 {/* Fill toggle and color */}
                 <FormControlLabel control={<Checkbox checked={!!selectedShape.fill} onChange={(e) => updateSelectedProp({ fill: e.target.checked } as any)} />} label="Relleno" />
                 <TextField type="color" label="Color de relleno" size="small" sx={{ width: 140 }} value={selectedShape.fillColor || '#000000'} onChange={(e) => updateSelectedProp({ fillColor: e.target.value } as any)} />
+                <Box>
+                  <Typography variant="caption">Opacidad de relleno</Typography>
+                  <Slider min={0} max={1} step={0.01} value={typeof selectedShape.fillOpacity === 'number' ? selectedShape.fillOpacity : 1} onChange={(_, v) => updateSelectedProp({ fillOpacity: Array.isArray(v) ? v[0] : v } as any)} />
+                </Box>
                 <Box>
                   <TextField type="color" label="Color de trazo" size="small" sx={{ width: 140 }} value={selectedShape.strokeColor || '#000000'} onChange={(e) => updateSelectedProp({ strokeColor: e.target.value } as any)} />
                 </Box>
@@ -939,7 +996,18 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
                   </>
                 )}
 
-                <Button variant="contained" sx={{ mt: 1 }} onClick={exportSvg}>Aplicar</Button>
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mt: 1 }}>
+                  <Box sx={{ flexGrow: 1, display: 'flex', gap: 1, minWidth: 120 }}>
+                    <Button fullWidth variant="outlined" onClick={() => selected && moveUp(selected)} disabled={!selected}>Subir</Button>
+                    <Button fullWidth variant="outlined" onClick={() => selected && moveDown(selected)} disabled={!selected}>Bajar</Button>
+                  </Box>
+                  <Box sx={{ flexGrow: 1, display: 'flex', gap: 1, minWidth: 120 }}>
+
+                    <Button fullWidth variant="outlined" onClick={() => selected && bringToFront(selected)} disabled={!selected}>Traer arriba</Button>
+                    <Button fullWidth variant="outlined" onClick={() => selected && sendToBack(selected)} disabled={!selected}>Enviar abajo</Button>
+                  </Box>
+                  <Button fullWidth variant="contained" sx={{ ml: 'auto' }} onClick={exportSvg}>Aplicar</Button>
+                </Box>
               </Box>
             )}
           </Box>

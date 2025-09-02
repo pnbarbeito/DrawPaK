@@ -65,6 +65,13 @@ const DynamicPalette: React.FC<Props> = ({ onDragStart }) => {
     loadElements();
   }, [loadElements]);
 
+  // Listen for external updates (e.g. when user saves a new SVG) and reload palette
+  useEffect(() => {
+    const onUpdated = () => { loadElements(); };
+    window.addEventListener('svg-elements-updated', onUpdated as EventListener);
+    return () => window.removeEventListener('svg-elements-updated', onUpdated as EventListener);
+  }, [loadElements]);
+
   const getCategoryDisplayName = (category: string) => {
     switch (category) {
       case 'transformadores':
@@ -101,9 +108,7 @@ const DynamicPalette: React.FC<Props> = ({ onDragStart }) => {
   if (loading) {
     return (
       <Box style={{ position: 'absolute', left: 12, top: 72, width: 160, background: '#f5f5f5', padding: 8, borderRadius: 6, zIndex: 1200 }}>
-        <Typography variant="h6" style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
-          Paleta
-        </Typography>
+        <Typography variant="h6" sx={{ width: '100%', textAlign: 'center', fontSize: 14, fontWeight: 600, mb: 1 }}>Paleta</Typography>
         <Typography variant="body2" style={{ fontSize: 12, color: '#666' }}>
           Cargando elementos...
         </Typography>
@@ -113,7 +118,7 @@ const DynamicPalette: React.FC<Props> = ({ onDragStart }) => {
 
   return (
     <Box style={{ position: 'absolute', left: 12, top: 72, width: 160, background: '#f5f5f5', padding: 8, borderRadius: 6, zIndex: 1200 }}>
-      <Typography variant="h6" style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
+      <Typography variant="h6" style={{ width: '100%', textAlign: 'center', fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
         Paleta
       </Typography>
       <Box style={{ marginTop: 8 }}>
