@@ -4,12 +4,12 @@ import SYMBOLS, { SymbolEntry } from './symbols';
 
 type SymbolNodeProps = {
   id: string;
-  data: { 
-    symbolKey: string; 
-    rotation?: number; 
-    scale?: number; 
-    flipX?: boolean; 
-    flipY?: boolean; 
+  data: {
+    symbolKey: string;
+    rotation?: number;
+    scale?: number;
+    flipX?: boolean;
+    flipY?: boolean;
     invertHandles?: boolean;
     isDynamicSvg?: boolean;
     svg?: string;
@@ -20,10 +20,10 @@ type SymbolNodeProps = {
 
 const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
   const { symbolKey, isDynamicSvg, svg: dynamicSvg, handles: dynamicHandles } = data;
-  
+
   // Estado local para preservar los datos del SVG
-  const [preservedSvgData, setPreservedSvgData] = React.useState<{svg?: string, handles?: string} | null>(null);
-  
+  const [preservedSvgData, setPreservedSvgData] = React.useState<{ svg?: string, handles?: string } | null>(null);
+
   // Cuando recibimos datos válidos por primera vez, los preservamos
   React.useEffect(() => {
     if (isDynamicSvg && dynamicSvg && dynamicHandles && !preservedSvgData) {
@@ -31,11 +31,11 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
       console.log(`💾 Preserving SVG data for ${id}:`, { svgLength: dynamicSvg.length });
     }
   }, [isDynamicSvg, dynamicSvg, dynamicHandles, preservedSvgData, id]);
-  
+
   // Usar datos preservados como respaldo
   const effectiveSvg = dynamicSvg || preservedSvgData?.svg;
   const effectiveHandles = dynamicHandles || preservedSvgData?.handles;
-  
+
   // Debug logging detallado
   console.log(`🔍 SymbolNode ${id} render:`, {
     symbolKey,
@@ -48,7 +48,7 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
     hasPreservedData: !!preservedSvgData,
     allDataKeys: Object.keys(data)
   });
-  
+
   // Si tenemos un elemento SVG dinámico, usarlo; sino, usar el símbolo estático
   let entry: SymbolEntry | undefined;
   let symbol: React.ReactNode = null;
@@ -58,7 +58,7 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
   if (isDynamicSvg && effectiveSvg) {
     // Elemento SVG dinámico de la base de datos (usando datos efectivos)
     inlineSvgMarkup = effectiveSvg;
-    
+
     // Extraer tamaño del viewBox del SVG
     const viewBoxMatch = effectiveSvg.match(/viewBox="([^"]+)"/);
     if (viewBoxMatch) {
@@ -78,55 +78,55 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
     // Símbolo estático del catálogo existente
     entry = (SYMBOLS as Record<string, SymbolEntry | undefined>)[symbolKey];
     symbol = entry?.svg ?? null;
-    
+
     // If node data provides size (from inserted custom SVG), prefer it
     const providedSize = (data as any).size as { w: number; h: number } | undefined;
     size = providedSize ?? entry?.size ?? { w: 48, h: 48 };
-    
+
     // If node provides inline svg markup in data.svg, prefer it
     inlineSvgMarkup = (data as any).svg;
   }
 
   const inlineWrapperRef = useRef<HTMLDivElement | null>(null);
-  
+
   // Usar React.memo para memorizar el SVG y evitar pérdida de datos
   const renderedSymbol = React.useMemo(() => {
-    console.log(`🧠 useMemo triggered for ${id}:`, { 
-      hasInlineSvg: !!inlineSvgMarkup, 
+    console.log(`🧠 useMemo triggered for ${id}:`, {
+      hasInlineSvg: !!inlineSvgMarkup,
       hasSymbol: !!symbol,
       symbolKey,
       svgPreview: inlineSvgMarkup ? inlineSvgMarkup.substring(0, 100) + '...' : 'none'
     });
-    
+
     if (inlineSvgMarkup) {
       return (
         <div
           key={`svg-${id}`}
           ref={inlineWrapperRef}
-          style={{ 
-            width: '100%', 
-            height: '100%', 
-            display: 'flex', 
-            alignItems: 'center', 
+          style={{
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            alignItems: 'center',
             justifyContent: 'center'
           }}
           dangerouslySetInnerHTML={{ __html: inlineSvgMarkup }}
         />
       );
     }
-    
+
     if (symbol) {
       return symbol;
     }
-    
+
     return (
-      <div style={{ 
-        width: '100%', 
-        height: '100%', 
-        backgroundColor: '#f0f0f0', 
+      <div style={{
+        width: '100%',
+        height: '100%',
+        backgroundColor: '#f0f0f0',
         border: '2px dashed #ccc',
-        display: 'flex', 
-        alignItems: 'center', 
+        display: 'flex',
+        alignItems: 'center',
         justifyContent: 'center',
         fontSize: '10px',
         color: '#666'
@@ -155,13 +155,13 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
         }
       }
 
-  // Set explicit width/height attributes to match the wrapper so the SVG keeps stable intrinsic size
-  svgEl.setAttribute('width', String(size.w));
-  svgEl.setAttribute('height', String(size.h));
+      // Set explicit width/height attributes to match the wrapper so the SVG keeps stable intrinsic size
+      svgEl.setAttribute('width', String(size.w));
+      svgEl.setAttribute('height', String(size.h));
 
-  // Ensure it visually fills the wrapper
-  svgEl.style.width = '100%';
-  svgEl.style.height = '100%';
+      // Ensure it visually fills the wrapper
+      svgEl.style.width = '100%';
+      svgEl.style.height = '100%';
       svgEl.style.display = 'block';
       if (!svgEl.getAttribute('preserveAspectRatio')) svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
     } catch (e) {
@@ -186,7 +186,7 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
   // Define connection points per symbol type
   // now supports an optional `offset` (px number or percentage string) to precisely position multiple handles on the same side
   const handles: { id: string; position: Position; type: 'source' | 'target'; offset?: number | string }[] = [];
-  
+
   // Si tenemos un elemento SVG dinámico con handles guardados, usarlos
   if (isDynamicSvg && effectiveHandles) {
     try {
@@ -292,7 +292,7 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
   // Helper function to rotate handle direction
   const rotateHandlePosition = (originalPosition: Position, angleDeg: number): Position => {
     const normalizedAngle = ((angleDeg % 360) + 360) % 360;
-    
+
     switch (originalPosition) {
       case Position.Top:
         if (normalizedAngle === 90) return Position.Right;
@@ -322,7 +322,7 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
   // Helper function to apply flip transformations to handle direction
   const applyFlipToPosition = (position: Position, flipX: boolean, flipY: boolean): Position => {
     let result = position;
-    
+
     // Apply flipX (horizontal flip)
     if (flipX) {
       switch (result) {
@@ -335,7 +335,7 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
         // Top and Bottom remain the same for horizontal flip
       }
     }
-    
+
     // Apply flipY (vertical flip)
     if (flipY) {
       switch (result) {
@@ -348,7 +348,7 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
         // Left and Right remain the same for vertical flip
       }
     }
-    
+
     return result;
   };
 
@@ -367,10 +367,10 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
         padding: 0,
       }}
     >
-  {handles.map((h) => {
+      {handles.map((h) => {
         // Invertir el tipo de handle si invertHandles está activo
         const handleType = invertHandles ? (h.type === 'source' ? 'target' : 'source') : h.type;
-        
+
         const HANDLE_SIZE = 8;
         const HANDLE_GAP = 0; // gap between node edge and handle
         const baseStyle: React.CSSProperties = {
@@ -414,7 +414,7 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
           // fallback: place at edge using previous offset behavior
           const centerX = size.w / 2;
           const centerY = size.h / 2;
-          const outerOffsetPx =0* HANDLE_SIZE + HANDLE_GAP;
+          const outerOffsetPx = 0 * HANDLE_SIZE + HANDLE_GAP;
           // Original position coordinates (before rotation) - align to grid
           let originalX: number, originalY: number;
 
@@ -470,10 +470,10 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
         // Calculate handle position with all transformations applied in the same order as CSS
         // Order: original -> flip -> rotate (to match CSS: rotate(angle) scaleX() scaleY())
         let transformedPosition = h.position;
-        
+
         // Apply flips first
         transformedPosition = applyFlipToPosition(transformedPosition, flipX, flipY);
-        
+
         // Then apply rotation
         if (rotation !== 0) {
           transformedPosition = rotateHandlePosition(transformedPosition, rotation);
@@ -506,7 +506,7 @@ const SymbolNode: React.FC<SymbolNodeProps> = ({ id, data, selected }) => {
           boxSizing: 'border-box',
         }}
       >
-  {renderedSymbol}
+        {renderedSymbol}
       </div>
     </div>
   );

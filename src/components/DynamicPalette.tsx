@@ -1,7 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Box, 
+import {
+  Box,
 
-Typography, Accordion, AccordionSummary, AccordionDetails } from '@mui/material';
+  Typography, Accordion, AccordionSummary, AccordionDetails
+} from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { getSvgElementsByCategory, getSvgCategories, SvgElement } from '../database';
 
@@ -21,7 +23,7 @@ const DynamicPalette: React.FC<Props> = ({ onDragStart }) => {
     try {
       setLoading(true);
       const categories = await getSvgCategories();
-      
+
       // Si no hay categorías, inicializar con elementos básicos
       if (categories.length === 0) {
         // Dar tiempo a que se inicialicen los elementos básicos
@@ -44,7 +46,7 @@ const DynamicPalette: React.FC<Props> = ({ onDragStart }) => {
 
   const loadElementsForCategories = async (categories: string[]) => {
     const elementsByCategory: ElementsByCategory = {};
-    
+
     for (const category of categories) {
       try {
         const elements = await getSvgElementsByCategory(category);
@@ -55,7 +57,7 @@ const DynamicPalette: React.FC<Props> = ({ onDragStart }) => {
         console.error(`Error cargando elementos de categoría ${category}:`, error);
       }
     }
-    
+
     setElementsByCategory(elementsByCategory);
   };
 
@@ -166,40 +168,42 @@ const DynamicPalette: React.FC<Props> = ({ onDragStart }) => {
                           borderRadius: 4
                         }}>
                           <div
-                            dangerouslySetInnerHTML={{ __html: (() => {
-                              try {
-                                if (!element.svg) return '';
-                                const parser = new DOMParser();
-                                const doc = parser.parseFromString(element.svg, 'image/svg+xml');
-                                const root = doc.documentElement as unknown as HTMLElement | null;
-                                if (!root || root.nodeName.toLowerCase() !== 'svg') return element.svg;
-                                const svgEl = root as unknown as SVGElement;
+                            dangerouslySetInnerHTML={{
+                              __html: (() => {
+                                try {
+                                  if (!element.svg) return '';
+                                  const parser = new DOMParser();
+                                  const doc = parser.parseFromString(element.svg, 'image/svg+xml');
+                                  const root = doc.documentElement as unknown as HTMLElement | null;
+                                  if (!root || root.nodeName.toLowerCase() !== 'svg') return element.svg;
+                                  const svgEl = root as unknown as SVGElement;
 
-                                // Ensure viewBox exists. If width/height present but no viewBox, try to derive a viewBox
-                                const vb = svgEl.getAttribute('viewBox');
-                                const wAttr = svgEl.getAttribute('width');
-                                const hAttr = svgEl.getAttribute('height');
-                                if (!vb && wAttr && hAttr) {
-                                  const pw = parseFloat(wAttr as string);
-                                  const ph = parseFloat(hAttr as string);
-                                  if (!isNaN(pw) && !isNaN(ph) && pw > 0 && ph > 0) {
-                                    svgEl.setAttribute('viewBox', `0 0 ${pw} ${ph}`);
+                                  // Ensure viewBox exists. If width/height present but no viewBox, try to derive a viewBox
+                                  const vb = svgEl.getAttribute('viewBox');
+                                  const wAttr = svgEl.getAttribute('width');
+                                  const hAttr = svgEl.getAttribute('height');
+                                  if (!vb && wAttr && hAttr) {
+                                    const pw = parseFloat(wAttr as string);
+                                    const ph = parseFloat(hAttr as string);
+                                    if (!isNaN(pw) && !isNaN(ph) && pw > 0 && ph > 0) {
+                                      svgEl.setAttribute('viewBox', `0 0 ${pw} ${ph}`);
+                                    }
                                   }
+
+                                  // Remove explicit width/height so serialized SVG is flexible, but set thumbnail explicit attributes/styles
+                                  svgEl.removeAttribute('width');
+                                  svgEl.removeAttribute('height');
+                                  svgEl.setAttribute('width', '42');
+                                  svgEl.setAttribute('height', '42');
+                                  svgEl.setAttribute('style', 'width:42px;height:42px;max-width:42px;max-height:42px;display:block');
+
+                                  const serializer = new XMLSerializer();
+                                  return serializer.serializeToString(svgEl);
+                                } catch (e) {
+                                  return element.svg || '';
                                 }
-
-                                // Remove explicit width/height so serialized SVG is flexible, but set thumbnail explicit attributes/styles
-                                svgEl.removeAttribute('width');
-                                svgEl.removeAttribute('height');
-                                svgEl.setAttribute('width', '42');
-                                svgEl.setAttribute('height', '42');
-                                svgEl.setAttribute('style', 'width:42px;height:42px;max-width:42px;max-height:42px;display:block');
-
-                                const serializer = new XMLSerializer();
-                                return serializer.serializeToString(svgEl);
-                              } catch (e) {
-                                return element.svg || '';
-                              }
-                            })() }}
+                              })()
+                            }}
                           />
                         </Box>
                         <Box style={{ fontSize: 10, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>

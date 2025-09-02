@@ -49,7 +49,7 @@ export const SYMBOL_CATEGORIES: Record<string, SymbolCategory> = {
       },
     }
   },
-  
+
   proteccion: {
     name: 'Protección',
     icon: (
@@ -152,13 +152,13 @@ export const SYMBOL_CATEGORIES: Record<string, SymbolCategory> = {
 // Función auxiliar para obtener todos los símbolos (compatible con código existente)
 export const getAllSymbols = (): Record<string, SymbolEntry> => {
   const allSymbols: Record<string, SymbolEntry> = {};
-  
+
   Object.values(SYMBOL_CATEGORIES).forEach(category => {
     Object.entries(category.symbols).forEach(([key, symbol]) => {
       allSymbols[key] = symbol;
     });
   });
-  
+
   return allSymbols;
 };
 

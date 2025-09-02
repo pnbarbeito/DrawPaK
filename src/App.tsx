@@ -78,15 +78,15 @@ function findFreePosition(
     gridSize = GRID_SIZE
 ): { x: number; y: number } {
     const isPositionOccupied = (pos: { x: number; y: number }) => {
-        return nodes.some(node => 
-            node.id !== excludeNodeId && 
-            node.position.x === pos.x && 
+        return nodes.some(node =>
+            node.id !== excludeNodeId &&
+            node.position.x === pos.x &&
             node.position.y === pos.y
         );
     };
 
     let position = snapToGridPos(desiredPosition, gridSize);
-    
+
     // Si la posición deseada está libre, usarla
     if (!isPositionOccupied(position)) {
         return position;
@@ -112,7 +112,7 @@ function findFreePosition(
                 x: position.x + (direction.x * radius),
                 y: position.y + (direction.y * radius)
             };
-            
+
             if (!isPositionOccupied(candidatePos)) {
                 return candidatePos;
             }
@@ -128,12 +128,12 @@ function findFreePosition(
 
 function FlowApp(): React.ReactElement {
     // Tipado específico para los datos de nodo/edge en esta app
-    type ElectNodeData = { 
-        label: string; 
-        rotation?: number; 
-        scale?: number; 
-        flipX?: boolean; 
-        flipY?: boolean; 
+    type ElectNodeData = {
+        label: string;
+        rotation?: number;
+        scale?: number;
+        flipX?: boolean;
+        flipY?: boolean;
         invertHandles?: boolean;
         symbolKey?: string;
         isDynamicSvg?: boolean;
@@ -145,10 +145,10 @@ function FlowApp(): React.ReactElement {
     const reactFlowWrapper = useRef<HTMLDivElement | null>(null);
     const [nodes, setNodes, onNodesChange] = useNodesState<ElectNodeData>([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState<ElectEdgeData>([]);
-    
+
     // Clipboard para copiar/pegar nodos
     const [clipboard, setClipboard] = React.useState<{ nodes: Node<ElectNodeData>[]; edges: any[] } | null>(null);
-    
+
     // Estado para la selección de área de exportación
     const [isSelectingExportArea, setIsSelectingExportArea] = React.useState(false);
     const [exportArea, setExportArea] = React.useState<{ x: number; y: number; width: number; height: number } | null>(null);
@@ -156,12 +156,12 @@ function FlowApp(): React.ReactElement {
     const [areaStart, setAreaStart] = React.useState<{ x: number; y: number } | null>(null);
     const [showBackground, setShowBackground] = React.useState(true);
     const [lastSaved, setLastSaved] = React.useState<Date | null>(null);
-    
+
     // Estado para historial de deshacer/rehacer
     const [history, setHistory] = React.useState<Array<{ nodes: Node<ElectNodeData>[]; edges: any[] }>>([]);
     const [historyIndex, setHistoryIndex] = React.useState(-1);
     const [isUndoRedoAction, setIsUndoRedoAction] = React.useState(false);
-    
+
     // Estado para gestión de esquemas
     const [showSchemasDialog, setShowSchemasDialog] = React.useState(false);
     const [showSvgDialog, setShowSvgDialog] = React.useState(false);
@@ -257,15 +257,14 @@ function FlowApp(): React.ReactElement {
                     nodes: JSON.stringify(nodes),
                     edges: JSON.stringify(edges),
                 });
-                
+
                 // Actualizar localStorage
                 saveToLocalStorage(nodes, edges, currentSchemaId, currentSchemaName);
-                
+
                 await loadSchemas();
-                alert('Esquema actualizado correctamente');
                 return;
             }
-            
+
             // Si no hay esquema actual, pedir nombre para crear uno nuevo
             if (!schemaName.trim()) {
                 alert('Por favor ingresa un nombre para el esquema');
@@ -281,7 +280,7 @@ function FlowApp(): React.ReactElement {
 
             // Establecer el nuevo esquema como actual
             setCurrentSchemaId(newSchemaId);
-            
+
             // Actualizar localStorage con el nuevo ID
             saveToLocalStorage(nodes, edges, newSchemaId, schemaName);
 
@@ -290,7 +289,6 @@ function FlowApp(): React.ReactElement {
             setSchemaDescription('');
             setIsTemplate(false);
             await loadSchemas();
-            alert('Esquema guardado correctamente');
         } catch (error) {
             console.error('Error guardando esquema:', error);
             alert('Error al guardar el esquema');
@@ -369,7 +367,6 @@ function FlowApp(): React.ReactElement {
             setSvgMarkup('');
             setSvgHandles('');
             await loadSvgElements();
-            alert('Elemento SVG guardado correctamente');
         } catch (e) {
             console.error('Error guardando svg element', e);
             alert('Error guardando elemento SVG');
@@ -391,18 +388,18 @@ function FlowApp(): React.ReactElement {
         try {
             const parsedNodes = JSON.parse(schema.nodes);
             const parsedEdges = JSON.parse(schema.edges);
-            
+
             setNodes(parsedNodes);
             setEdges(parsedEdges);
             setShowSchemasDialog(false);
-            
+
             // Establecer el ID del esquema actual para futuras actualizaciones
             setCurrentSchemaId(schema.id || null);
             setCurrentSchemaName(schema.name || '');
-            
+
             // Guardar en localStorage con el ID del esquema
             saveToLocalStorage(parsedNodes, parsedEdges, schema.id || null, schema.name);
-            
+
             // Sincronizar el contador de ID con los nodos cargados
             let maxId = 0;
             for (const node of parsedNodes) {
@@ -423,22 +420,22 @@ function FlowApp(): React.ReactElement {
         try {
             const parsedNodes = JSON.parse(schema.nodes);
             const parsedEdges = JSON.parse(schema.edges);
-            
+
             // Crear un mapa de IDs antiguos a nuevos para evitar conflictos
             const nodeIdMap = new Map<string, string>();
-            
+
             // Generar nuevos IDs para los nodos importados y encontrar posiciones libres
             const newNodes = parsedNodes.map((node: any) => {
                 const newId = `node_${id++}`;
                 nodeIdMap.set(node.id, newId);
-                
+
                 // Usar findFreePosition para evitar colisiones
                 const desiredPosition = {
                     x: node.position.x + 100, // Offset inicial
                     y: node.position.y + 100
                 };
                 const freePosition = findFreePosition(desiredPosition, nodes);
-                
+
                 return {
                     ...node,
                     id: newId,
@@ -446,7 +443,7 @@ function FlowApp(): React.ReactElement {
                     position: freePosition
                 };
             });
-            
+
             // Actualizar IDs en las conexiones importadas
             const newEdges = parsedEdges
                 .filter((edge: any) => nodeIdMap.has(edge.source) && nodeIdMap.has(edge.target))
@@ -457,15 +454,15 @@ function FlowApp(): React.ReactElement {
                     target: nodeIdMap.get(edge.target),
                     selected: false
                 }));
-            
+
             // Agregar los nuevos elementos al esquema actual
             const updatedNodes = [...nodes, ...newNodes];
             const updatedEdges = [...edges, ...newEdges];
-            
+
             setNodes(updatedNodes);
             setEdges(updatedEdges);
             setShowSchemasDialog(false);
-            
+
         } catch (error) {
             console.error('Error importando esquema:', error);
             alert('Error al importar el esquema');
@@ -477,7 +474,6 @@ function FlowApp(): React.ReactElement {
             try {
                 await deleteSchema(schemaId);
                 await loadSchemas();
-                alert('Esquema eliminado correctamente');
             } catch (error) {
                 console.error('Error eliminando esquema:', error);
                 alert('Error al eliminar el esquema');
@@ -491,7 +487,6 @@ function FlowApp(): React.ReactElement {
             try {
                 await duplicateSchema(schemaId, newName.trim());
                 await loadSchemas();
-                alert('Esquema duplicado correctamente');
             } catch (error) {
                 console.error('Error duplicando esquema:', error);
                 alert('Error al duplicar el esquema');
@@ -514,14 +509,14 @@ function FlowApp(): React.ReactElement {
                 currentSchemaName: schemaName || currentSchemaName
             };
             localStorage.setItem(STORAGE_KEY, JSON.stringify(schemaData));
-            
+
             // Guardar también el ID del esquema actual por separado
             if (schemaId !== null || currentSchemaId !== null) {
                 localStorage.setItem(CURRENT_SCHEMA_KEY, String(schemaId || currentSchemaId));
             } else {
                 localStorage.removeItem(CURRENT_SCHEMA_KEY);
             }
-            
+
             setLastSaved(new Date());
         } catch (error) {
             console.error('Error guardando en localStorage:', error);
@@ -532,22 +527,22 @@ function FlowApp(): React.ReactElement {
         try {
             const savedData = localStorage.getItem(STORAGE_KEY);
             const savedSchemaId = localStorage.getItem(CURRENT_SCHEMA_KEY);
-            
+
             if (savedData) {
                 const schemaData = JSON.parse(savedData);
-                
+
                 // Establecer el ID del esquema actual si existe
                 if (savedSchemaId) {
                     setCurrentSchemaId(Number(savedSchemaId));
                 } else if (schemaData.currentSchemaId) {
                     setCurrentSchemaId(schemaData.currentSchemaId);
                 }
-                
+
                 // Establecer el nombre del esquema actual si existe
                 if (schemaData.currentSchemaName) {
                     setCurrentSchemaName(schemaData.currentSchemaName);
                 }
-                
+
                 return {
                     nodes: schemaData.nodes || [],
                     edges: schemaData.edges || [],
@@ -567,17 +562,17 @@ function FlowApp(): React.ReactElement {
         if (savedNodes.length > 0 || savedEdges.length > 0) {
             setNodes(savedNodes);
             setEdges(savedEdges);
-            
+
             // Establecer el ID del esquema actual si existe
             if (savedSchemaId) {
                 setCurrentSchemaId(savedSchemaId);
             }
-            
+
             // Establecer el nombre del esquema actual si existe
             if (savedSchemaName) {
                 setCurrentSchemaName(savedSchemaName);
             }
-            
+
             // Sincronizar el contador de ID con los nodos cargados
             let maxId = 0;
             for (const node of savedNodes) {
@@ -587,7 +582,7 @@ function FlowApp(): React.ReactElement {
                 }
             }
             id = maxId + 1;
-            
+
             // Inicializar historial con el estado cargado (después de un breve delay)
             setTimeout(() => {
                 const initialState = {
@@ -621,28 +616,28 @@ function FlowApp(): React.ReactElement {
                 nodes: JSON.parse(JSON.stringify(currentNodes)),
                 edges: JSON.parse(JSON.stringify(currentEdges))
             };
-            
+
             // Verificar si el estado actual es diferente al último en el historial
             if (prevHistory.length > 0) {
                 const lastState = prevHistory[prevHistory.length - 1];
-                if (JSON.stringify(lastState.nodes) === JSON.stringify(newState.nodes) && 
+                if (JSON.stringify(lastState.nodes) === JSON.stringify(newState.nodes) &&
                     JSON.stringify(lastState.edges) === JSON.stringify(newState.edges)) {
                     return prevHistory; // No hay cambios, no guardar
                 }
             }
-            
+
             // Si estamos en medio del historial, descartar todo lo que está después del índice actual
             const currentHistoryIndex = historyIndex;
             const newHistory = prevHistory.slice(0, currentHistoryIndex + 1);
             newHistory.push(newState);
-            
+
             // Limitar el historial a los últimos 50 estados para evitar problemas de memoria
             if (newHistory.length > 50) {
                 newHistory.shift();
                 setHistoryIndex(prev => Math.max(0, prev - 1));
                 return newHistory;
             }
-            
+
             setHistoryIndex(newHistory.length - 1);
             return newHistory;
         });
@@ -652,21 +647,21 @@ function FlowApp(): React.ReactElement {
         if (historyIndex > 0) {
             setIsUndoRedoAction(true);
             const previousState = history[historyIndex - 1];
-            
+
             // Limpiar cualquier timeout pendiente de guardar historial
             if (saveTimeoutRef.current) {
                 clearTimeout(saveTimeoutRef.current);
                 saveTimeoutRef.current = null;
             }
-            
+
             setNodes(previousState.nodes);
             setEdges(previousState.edges);
             setHistoryIndex(historyIndex - 1);
-            
+
             // Actualizar las referencias para evitar que se guarde nuevamente
             lastNodesRef.current = JSON.stringify(previousState.nodes);
             lastEdgesRef.current = JSON.stringify(previousState.edges);
-            
+
             // Resetear la bandera después de un breve delay
             setTimeout(() => setIsUndoRedoAction(false), 50);
         }
@@ -676,21 +671,21 @@ function FlowApp(): React.ReactElement {
         if (historyIndex < history.length - 1) {
             setIsUndoRedoAction(true);
             const nextState = history[historyIndex + 1];
-            
+
             // Limpiar cualquier timeout pendiente de guardar historial
             if (saveTimeoutRef.current) {
                 clearTimeout(saveTimeoutRef.current);
                 saveTimeoutRef.current = null;
             }
-            
+
             setNodes(nextState.nodes);
             setEdges(nextState.edges);
             setHistoryIndex(historyIndex + 1);
-            
+
             // Actualizar las referencias para evitar que se guarde nuevamente
             lastNodesRef.current = JSON.stringify(nextState.nodes);
             lastEdgesRef.current = JSON.stringify(nextState.edges);
-            
+
             // Resetear la bandera después de un breve delay
             setTimeout(() => setIsUndoRedoAction(false), 50);
         }
@@ -700,20 +695,20 @@ function FlowApp(): React.ReactElement {
     const lastNodesRef = React.useRef<string>('');
     const lastEdgesRef = React.useRef<string>('');
     const saveTimeoutRef = React.useRef<number | null>(null);
-    
+
     React.useEffect(() => {
         if (isUndoRedoAction) return;
-        
+
         const nodesStr = JSON.stringify(nodes);
         const edgesStr = JSON.stringify(edges);
-        
+
         // Solo guardar si realmente hay cambios
         if (nodesStr !== lastNodesRef.current || edgesStr !== lastEdgesRef.current) {
             // Limpiar timeout anterior si existe
             if (saveTimeoutRef.current) {
                 clearTimeout(saveTimeoutRef.current);
             }
-            
+
             // Debounce para evitar demasiadas entradas en el historial
             saveTimeoutRef.current = setTimeout(() => {
                 // Verificar otra vez si no estamos en una operación de undo/redo
@@ -726,7 +721,7 @@ function FlowApp(): React.ReactElement {
                 }
             }, 100); // Reducir el tiempo de debounce a 100ms
         }
-        
+
         // Cleanup del timeout al desmontar
         return () => {
             if (saveTimeoutRef.current) {
@@ -782,7 +777,7 @@ function FlowApp(): React.ReactElement {
             timestamp: new Date().toISOString(),
             stackTrace: new Error().stack?.split('\n').slice(1, 5).join('\n')
         });
-        
+
         // Clear all nodes and edges
         setNodes([]);
         setEdges([]);
@@ -810,14 +805,14 @@ function FlowApp(): React.ReactElement {
             console.log('⚠️ handleNewSchema ya se está ejecutando, ignorando...');
             return;
         }
-        
-        console.log('🆕 Botón Nuevo Esquema presionado', { 
-            nodes: nodes.length, 
+
+        console.log('🆕 Botón Nuevo Esquema presionado', {
+            nodes: nodes.length,
             edges: edges.length,
             currentSchemaId,
-            currentSchemaName 
+            currentSchemaName
         });
-        
+
         // Solo mostrar confirmación si hay contenido
         if (nodes.length > 0 || edges.length > 0) {
             console.log('⚠️ Hay contenido, mostrando diálogo de confirmación...');
@@ -846,10 +841,10 @@ function FlowApp(): React.ReactElement {
     const copySelectedElements = useCallback(() => {
         const selectedNodes = nodes.filter(node => node.selected);
         const selectedNodeIds = selectedNodes.map(node => node.id);
-        const selectedEdges = edges.filter(edge => 
+        const selectedEdges = edges.filter(edge =>
             selectedNodeIds.includes(edge.source) && selectedNodeIds.includes(edge.target)
         );
-        
+
         if (selectedNodes.length > 0) {
             setClipboard({ nodes: selectedNodes, edges: selectedEdges });
             console.log(`Copiados ${selectedNodes.length} nodos y ${selectedEdges.length} conexiones`);
@@ -861,21 +856,21 @@ function FlowApp(): React.ReactElement {
 
         // Mapeo para nuevos IDs
         const idMapping: Record<string, string> = {};
-        
+
         // Crear nuevos nodos con IDs únicos y posiciones libres
         const newNodes = clipboard.nodes.map(node => {
             const newId = getId();
             idMapping[node.id] = newId;
-            
+
             // Posición deseada (desplazada de la original)
             const desiredPosition = {
                 x: node.position.x + GRID_SIZE * 2,
                 y: node.position.y + GRID_SIZE * 2
             };
-            
+
             // Encontrar una posición libre
             const freePosition = findFreePosition(desiredPosition, nodes);
-            
+
             return {
                 ...node,
                 id: newId,
@@ -903,10 +898,10 @@ function FlowApp(): React.ReactElement {
     const exportWithoutBackground = async (exportFunction: () => Promise<string | null>): Promise<string | null> => {
         // Desactivar el fondo temporalmente
         setShowBackground(false);
-        
+
         // Esperar un frame para que se actualice la UI
         await new Promise(resolve => requestAnimationFrame(resolve));
-        
+
         try {
             // Realizar la exportación
             const result = await exportFunction();
@@ -977,9 +972,9 @@ function FlowApp(): React.ReactElement {
 
             const svgElementData = event.dataTransfer.getData('application/svgelement');
             let svgElement: SvgElement | null = null;
-            
+
             console.log('🎯 onDrop received:', { symbolKey, svgElementData: !!svgElementData });
-            
+
             try {
                 if (svgElementData) {
                     svgElement = JSON.parse(svgElementData);
@@ -1028,7 +1023,7 @@ function FlowApp(): React.ReactElement {
                 hasSvg: !!newNode.data.svg,
                 svgLength: newNode.data.svg?.length
             });
-            
+
             setNodes((nds) => nds.concat(newNode));
         },
         [setNodes, nodes],
@@ -1042,15 +1037,15 @@ function FlowApp(): React.ReactElement {
     // Handlers para la selección de área de exportación
     const handleCanvasMouseDown = useCallback((event: React.MouseEvent) => {
         if (!isSelectingExportArea || !reactFlowWrapper.current) return;
-        
+
         // Prevenir el comportamiento por defecto de ReactFlow
         event.preventDefault();
         event.stopPropagation();
-        
+
         const rect = reactFlowWrapper.current.getBoundingClientRect();
         const x = event.clientX - rect.left;
         const y = event.clientY - rect.top;
-        
+
         setAreaStart({ x, y });
         setIsDrawingArea(true);
         setExportArea(null);
@@ -1058,30 +1053,30 @@ function FlowApp(): React.ReactElement {
 
     const handleCanvasMouseMove = useCallback((event: React.MouseEvent) => {
         if (!isSelectingExportArea || !isDrawingArea || !areaStart || !reactFlowWrapper.current) return;
-        
+
         // Prevenir el comportamiento por defecto de ReactFlow
         event.preventDefault();
         event.stopPropagation();
-        
+
         const rect = reactFlowWrapper.current.getBoundingClientRect();
         const currentX = event.clientX - rect.left;
         const currentY = event.clientY - rect.top;
-        
+
         const x = Math.min(areaStart.x, currentX);
         const y = Math.min(areaStart.y, currentY);
         const width = Math.abs(currentX - areaStart.x);
         const height = Math.abs(currentY - areaStart.y);
-        
+
         setExportArea({ x, y, width, height });
     }, [isSelectingExportArea, isDrawingArea, areaStart]);
 
     const handleCanvasMouseUp = useCallback((event: React.MouseEvent) => {
         if (!isSelectingExportArea || !isDrawingArea) return;
-        
+
         // Prevenir el comportamiento por defecto de ReactFlow
         event.preventDefault();
         event.stopPropagation();
-        
+
         setIsDrawingArea(false);
         setAreaStart(null);
     }, [isSelectingExportArea, isDrawingArea]);
@@ -1110,7 +1105,7 @@ function FlowApp(): React.ReactElement {
         try {
             // Capturar toda la viewport sin fondo de puntos
             const fullDataUrl = await exportWithoutBackground(async () => {
-                return await toPng(reactFlowWrapper.current!, { 
+                return await toPng(reactFlowWrapper.current!, {
                     cacheBust: true,
                     backgroundColor: '#ffffff'
                 });
@@ -1134,7 +1129,7 @@ function FlowApp(): React.ReactElement {
             // Rellenar el fondo con blanco
             ctx.fillStyle = '#ffffff';
             ctx.fillRect(0, 0, exportArea.width, exportArea.height);
-            
+
             // Crear una imagen con toda la viewport
             const img = new Image();
             await new Promise<void>((resolve, reject) => {
@@ -1173,7 +1168,7 @@ function FlowApp(): React.ReactElement {
             a.href = croppedDataUrl;
             a.download = 'area_selected.png';
             a.click();
-            
+
             cancelAreaSelection();
         } catch (error) {
             console.error('Error exporting selected area:', error);
@@ -1291,7 +1286,7 @@ function FlowApp(): React.ReactElement {
         try {
             // allow one animation frame for styles and SVG to settle
             await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
-            const dataUrl = await toPng(clone as HTMLElement, { 
+            const dataUrl = await toPng(clone as HTMLElement, {
                 cacheBust: true,
                 backgroundColor: '#ffffff'
             });
@@ -1435,7 +1430,7 @@ function FlowApp(): React.ReactElement {
 
             // allow styles to settle
             await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
-            const nodesOnlyDataUrl = await toPng(clone as HTMLElement, { 
+            const nodesOnlyDataUrl = await toPng(clone as HTMLElement, {
                 cacheBust: true,
                 backgroundColor: '#ffffff'
             });
@@ -1452,14 +1447,14 @@ function FlowApp(): React.ReactElement {
             console.warn('Failed to create nodes-only raster via clone', e);
             // fallback: try rasterizing individual nodes
             const nodeEls = Array.from(root.querySelectorAll('.react-flow__node')) as HTMLElement[];
-            console.debug('[export] compositeViewportPng rootRect=', rect, 'nodeCount=', nodeEls.length);
+            
             for (const nodeEl of nodeEls) {
                 try {
                     const nRect = nodeEl.getBoundingClientRect();
                     const dx = nRect.left - rect.left;
                     const dy = nRect.top - rect.top;
-                    console.debug('[export] node', nodeEl.getAttribute('data-id') || nodeEl.id, 'rect=', nRect, 'dx,dy=', dx, dy);
-                    const imgDataUrl = await toPng(nodeEl as HTMLElement, { 
+                    
+                    const imgDataUrl = await toPng(nodeEl as HTMLElement, {
                         cacheBust: true,
                         backgroundColor: '#ffffff'
                     });
@@ -1530,19 +1525,19 @@ function FlowApp(): React.ReactElement {
     const selectedNode = nodes.find((n) => n.selected);
     const updateSelectedNodeData = (patch: Partial<any>) => {
         if (!selectedNode) return;
-        
+
         // Si estamos invirtiendo handles, romper todas las conexiones del elemento
         if (patch.invertHandles !== undefined) {
             const nodeId = selectedNode.id;
-            
+
             // Eliminar todas las conexiones que involucren este nodo
-            setEdges((currentEdges) => 
-                currentEdges.filter((edge) => 
+            setEdges((currentEdges) =>
+                currentEdges.filter((edge) =>
                     edge.source !== nodeId && edge.target !== nodeId
                 )
             );
         }
-        
+
         setNodes((nds) => nds.map((n) => (n.id === selectedNode.id ? { ...n, data: { ...n.data, ...(patch) } } : n)));
     };
 
@@ -1603,10 +1598,10 @@ function FlowApp(): React.ReactElement {
                     </IconButton>
                 </Toolbar>
             </AppBar>
-            <Box 
-                ref={reactFlowWrapper} 
-                style={{ 
-                    flex: 1, 
+            <Box
+                ref={reactFlowWrapper}
+                style={{
+                    flex: 1,
                     position: 'relative',
                     cursor: isSelectingExportArea ? 'crosshair' : 'default'
                 }}
@@ -1643,7 +1638,7 @@ function FlowApp(): React.ReactElement {
                         {showBackground && <Background gap={GRID_SIZE} />}
                     </ReactFlow>
                 </ReactFlowProvider>
-                
+
                 {/* Overlay para mostrar el área de selección */}
                 {isSelectingExportArea && exportArea && (
                     <Box
@@ -1660,7 +1655,7 @@ function FlowApp(): React.ReactElement {
                         }}
                     />
                 )}
-                
+
                 {/* Instrucciones para la selección de área */}
                 {isSelectingExportArea && (
                     <Box
@@ -1694,18 +1689,18 @@ function FlowApp(): React.ReactElement {
                         Edición
                     </Typography>
                     <Box style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                        <Button 
-                            variant="outlined" 
-                            size="small" 
+                        <Button
+                            variant="outlined"
+                            size="small"
                             fullWidth
                             startIcon={<RotateLeftIcon />}
                             onClick={() => updateSelectedNodeData({ rotation: (selectedNode.data?.rotation ?? 0) - 90 })}
                         >
                             90°
                         </Button>
-                        <Button 
-                            variant="outlined" 
-                            size="small" 
+                        <Button
+                            variant="outlined"
+                            size="small"
                             fullWidth
                             startIcon={<RotateRightIcon />}
                             onClick={() => updateSelectedNodeData({ rotation: (selectedNode.data?.rotation ?? 0) + 90 })}
@@ -1714,18 +1709,18 @@ function FlowApp(): React.ReactElement {
                         </Button>
                     </Box>
                     <Box style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                        <Button 
-                            variant="outlined" 
-                            size="small" 
+                        <Button
+                            variant="outlined"
+                            size="small"
                             fullWidth
                             startIcon={<FlipIcon />}
                             onClick={() => updateSelectedNodeData({ flipX: !(selectedNode.data?.flipX ?? false) })}
                         >
                             Flip X
                         </Button>
-                        <Button 
-                            variant="outlined" 
-                            size="small" 
+                        <Button
+                            variant="outlined"
+                            size="small"
                             fullWidth
                             startIcon={<FlipIcon style={{ transform: 'rotate(90deg)' }} />}
                             onClick={() => updateSelectedNodeData({ flipY: !(selectedNode.data?.flipY ?? false) })}
@@ -1755,9 +1750,9 @@ function FlowApp(): React.ReactElement {
                         />
                     </Box>
                     <Box style={{ display: 'flex', justifyContent: 'center' }}>
-                        <Button 
-                            variant="contained" 
-                            size="small" 
+                        <Button
+                            variant="contained"
+                            size="small"
                             startIcon={<SwapHorizIcon />}
                             onClick={() => updateSelectedNodeData({ invertHandles: !(selectedNode.data?.invertHandles ?? false) })}
                         >
@@ -1890,68 +1885,33 @@ function FlowApp(): React.ReactElement {
                 </DialogActions>
             </Dialog>
 
-                        {/* Diálogo para crear/editar elementos SVG (extraído) */}
-                        {/* eslint-disable-next-line react/jsx-props-no-spreading */}
-                        <React.Suspense fallback={null}>
-                            <SvgEditorDialog
-                                open={showSvgDialog}
-                                onClose={() => setShowSvgDialog(false)}
-                                svgName={svgName}
-                                setSvgName={setSvgName}
-                                svgDescription={svgDescription}
-                                setSvgDescription={setSvgDescription}
-                                svgCategory={svgCategory}
-                                setSvgCategory={setSvgCategory}
-                                categories={svgCategories}
-                                svgHandles={svgHandles}
-                                setSvgHandles={setSvgHandles}
-                                svgMarkup={svgMarkup}
-                                setSvgMarkup={setSvgMarkup}
-                                useEditor={useEditor}
-                                setUseEditor={setUseEditor}
-                                sanitizedSvg={sanitizedSvg}
-                                svgElements={svgElements}
-                                onSaveSvgElement={handleSaveSvgElement}
-                                onInsertElement={(el) => {
-                                    const desired = { x: 100, y: 100 };
-                                    const position = findFreePosition(desired, nodes);
-                                    const parseSvgSize = (svgText: string) => {
-                                        try {
-                                            const parser = new DOMParser();
-                                            const doc = parser.parseFromString(svgText, 'image/svg+xml');
-                                            const svgEl = doc.querySelector('svg');
-                                            if (!svgEl) return undefined;
-                                            const vb = svgEl.getAttribute('viewBox');
-                                            if (vb) {
-                                                const parts = vb.split(/[ ,]+/).map(p => parseFloat(p)).filter(n => !isNaN(n));
-                                                if (parts.length === 4) return { w: Math.abs(parts[2]), h: Math.abs(parts[3]) };
-                                            }
-                                            const wAttr = svgEl.getAttribute('width');
-                                            const hAttr = svgEl.getAttribute('height');
-                                            if (wAttr && hAttr) {
-                                                const pw = parseFloat(wAttr.toString().replace(/[^0-9.\-]/g, ''));
-                                                const ph = parseFloat(hAttr.toString().replace(/[^0-9.\-]/g, ''));
-                                                if (!isNaN(pw) && !isNaN(ph) && pw > 0 && ph > 0) return { w: pw, h: ph };
-                                            }
-                                        } catch (e) { /* ignore */ }
-                                        return undefined;
-                                    };
-                                    const inferred = parseSvgSize(el.svg || '');
-                                    const newNode: Node<any> = {
-                                        id: getId(),
-                                        position,
-                                        type: 'symbolNode',
-                                        data: { symbolKey: `custom_svg_${el.id}`, label: el.name, svg: el.svg, size: inferred }
-                                    };
-                                    setNodes((nds) => nds.concat(newNode));
-                                    setShowSvgDialog(false);
-                                }}
-                                onDeleteElement={async (el) => {
-                                    if (!el.id) return;
-                                    try { await deleteSvgElement(el.id); const elems = await getAllSvgElements(); setSvgElements(elems); } catch (e) { console.error(e); }
-                                }}
-                            />
-                        </React.Suspense>
+            <React.Suspense fallback={null}>
+                <SvgEditorDialog
+                    open={showSvgDialog}
+                    onClose={() => setShowSvgDialog(false)}
+                    svgName={svgName}
+                    setSvgName={setSvgName}
+                    svgDescription={svgDescription}
+                    setSvgDescription={setSvgDescription}
+                    svgCategory={svgCategory}
+                    setSvgCategory={setSvgCategory}
+                    categories={svgCategories}
+                    svgHandles={svgHandles}
+                    setSvgHandles={setSvgHandles}
+                    svgMarkup={svgMarkup}
+                    setSvgMarkup={setSvgMarkup}
+                    useEditor={useEditor}
+                    setUseEditor={setUseEditor}
+                    sanitizedSvg={sanitizedSvg}
+                    svgElements={svgElements}
+                    onSaveSvgElement={handleSaveSvgElement}
+
+                    onDeleteElement={async (el) => {
+                        if (!el.id) return;
+                        try { await deleteSvgElement(el.id); const elems = await getAllSvgElements(); setSvgElements(elems); } catch (e) { console.error(e); }
+                    }}
+                />
+            </React.Suspense>
         </Box>
     );
 }

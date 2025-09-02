@@ -33,14 +33,16 @@ const GRID = 10;
 // GRID_SIZE visual grid to match diagram GRID (px)
 const GRID_SIZE = 20;
 
-const defaultRect = (id: string): RectShape => ({ id, type: 'rect', x: 40, y: 60, w: 120, h: 80, fill: true, fillColor: '#e6f2ff', strokeColor: '#000', strokeWidth: 2, rotation: 0, handles: [] });
-const defaultCircle = (id: string): CircleShape => ({ id, type: 'circle', x: 100, y: 90, r: 40, fill: true, fillColor: '#e6f2ff', strokeColor: '#000', strokeWidth: 2, rotation: 0, handles: [] });
-const defaultLine = (id: string): LineShape => ({ id, type: 'line', x1: 40, y1: 40, x2: 160, y2: 40, fill: false, fillColor: '#000000', strokeColor: '#000', strokeWidth: 2, rotation: 0, handles: [] });
+const defaultRect = (id: string): RectShape => ({ id, type: 'rect', x: 20, y: 20, w: 60, h: 40, fill: true, fillColor: 'rgba(255, 255, 255, 0)', strokeColor: '#000', strokeWidth: 2, rotation: 0, handles: [] });
+const defaultCircle = (id: string): CircleShape => ({ id, type: 'circle', x: 60, y: 60, r: 30, fill: true, fillColor: 'rgba(255, 255, 255, 0)', strokeColor: '#000', strokeWidth: 2, rotation: 0, handles: [] });
+const defaultLine = (id: string): LineShape => ({ id, type: 'line', x1: 60, y1: 80, x2: 60, y2: 40, fill: false, fillColor: '#000000', strokeColor: '#000', strokeWidth: 2, rotation: 0, handles: [] });
 
-const DISPLAY_SCALE = 2;
+const DISPLAY_SCALE = 3;
+const STORAGE_KEY = 'svgShapeEditor.draft.v1';
 
-const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }) => {
+const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const saveTimerRef = useRef<number | null>(null);
   const dragStartPos = useRef<{ x: number; y: number } | null>(null);
   const dragStartTime = useRef<number>(0);
   const justFinishedDrag = useRef<boolean>(false);
@@ -56,8 +58,8 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
   const dragStateRef = useRef<null | {
     mode: 'move' | 'handle' | 'resize';
     shapeId: string;
-  handleId?: string;
-  corner?: 'nw' | 'ne' | 'se' | 'sw' | 'p1' | 'p2' | 'radius';
+    handleId?: string;
+    corner?: 'nw' | 'ne' | 'se' | 'sw' | 'p1' | 'p2' | 'radius';
     offsetX?: number;
     offsetY?: number;
   }>(null);
@@ -65,8 +67,8 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
   const updateDragState = (v: null | {
     mode: 'move' | 'handle' | 'resize';
     shapeId: string;
-  handleId?: string;
-  corner?: 'nw' | 'ne' | 'se' | 'sw' | 'p1' | 'p2' | 'radius';
+    handleId?: string;
+    corner?: 'nw' | 'ne' | 'se' | 'sw' | 'p1' | 'p2' | 'radius';
     offsetX?: number;
     offsetY?: number;
   }) => {
@@ -74,6 +76,38 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
   };
 
   const snap = (v: number) => Math.round(v / GRID) * GRID;
+
+  // Load draft from localStorage on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { shapes?: Shape[]; canvasWidth?: number; canvasHeight?: number };
+        if (Array.isArray(parsed.shapes)) setShapes(parsed.shapes as Shape[]);
+        if (typeof parsed.canvasWidth === 'number') setCanvasWidth(parsed.canvasWidth);
+        if (typeof parsed.canvasHeight === 'number') setCanvasHeight(parsed.canvasHeight);
+      }
+    } catch (err) {
+      // ignore parse errors
+    }
+  }, []);
+
+  // Save draft to localStorage (debounced)
+  useEffect(() => {
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+    }
+    saveTimerRef.current = window.setTimeout(() => {
+      try {
+        const payload = JSON.stringify({ shapes, canvasWidth, canvasHeight });
+        localStorage.setItem(STORAGE_KEY, payload);
+      } catch (err) {
+        // ignore
+      }
+      saveTimerRef.current = null;
+    }, 400);
+    return () => { if (saveTimerRef.current) { window.clearTimeout(saveTimerRef.current); saveTimerRef.current = null; } };
+  }, [shapes, canvasWidth, canvasHeight]);
 
   useEffect(() => {
     if (!onChange) return;
@@ -213,7 +247,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
             // deep clone shape and handles
             const cloneShape: Shape = JSON.parse(JSON.stringify(shape));
             clipboardRef.current = [cloneShape];
-            console.debug('[SvgEditor] Copied shape to clipboard', cloneShape.id);
+    
           }
         }
         return;
@@ -227,7 +261,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
         // Paste all shapes in clipboard (usually single)
         setShapes(prev => {
           const newOnes: Shape[] = cb.map(orig => {
-            const newid = `shape_${Date.now()}_${Math.floor(Math.random()*10000)}`;
+            const newid = `shape_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
             // deep clone
             const s = JSON.parse(JSON.stringify(orig)) as any;
             // remap id
@@ -238,7 +272,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
             if (s.type === 'line') { s.x1 = (s.x1 || 0) + 10; s.y1 = (s.y1 || 0) + 10; s.x2 = (s.x2 || 0) + 10; s.y2 = (s.y2 || 0) + 10; }
             // remap handles ids
             if (Array.isArray(s.handles)) {
-              s.handles = s.handles.map((h: any) => ({ ...h, id: `h_${Date.now()}_${Math.floor(Math.random()*10000)}` }));
+              s.handles = s.handles.map((h: any) => ({ ...h, id: `h_${Date.now()}_${Math.floor(Math.random() * 10000)}` }));
             }
             return s as Shape;
           });
@@ -328,8 +362,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
       updateDragState({ mode: 'move', shapeId: shape.id, offsetX: svgP.x - shape.x1, offsetY: svgP.y - shape.y1 });
     }
 
-    console.debug('[SvgEditor] onMouseDownShape', { id: shape.id, clientX: e.clientX, clientY: e.clientY, svgX: svgP.x, svgY: svgP.y, justFinishedDrag: justFinishedDrag.current });
-    console.debug('[SvgEditor] onMouseDownShape', { id: shape.id, clientX: e.clientX, clientY: e.clientY, svgX: svgP.x, svgY: svgP.y, justFinishedDrag: justFinishedDrag.current });
+    
     // attach global listeners so dragging keeps working even if pointer leaves the svg
     if (!windowListenersAttached.current) {
       window.addEventListener('mousemove', handleWindowMouseMove);
@@ -341,7 +374,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
   const onMouseDownHandle = (e: React.MouseEvent, shapeId: string, handleId: string) => {
     e.stopPropagation();
     if (e.button !== 0) return;
-    console.debug('[SvgEditor] onMouseDownHandle', { shapeId, handleId });
+    
     updateDragState({ mode: 'handle', shapeId, handleId });
     if (!windowListenersAttached.current) {
       window.addEventListener('mousemove', handleWindowMouseMove);
@@ -354,7 +387,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
     e.stopPropagation();
     if (e.button !== 0) return;
     setSelected(shape.id);
-    console.debug('[SvgEditor] onMouseDownResizeCorner', { shapeId: shape.id, corner });
+    
     updateDragState({ mode: 'resize', shapeId: shape.id, corner, offsetX: 0, offsetY: 0 });
     if (!windowListenersAttached.current) {
       window.addEventListener('mousemove', handleWindowMouseMove);
@@ -370,7 +403,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
 
     // Marcar que hubo movimiento real para prevenir clicks que deseleccionen
     justFinishedDrag.current = true;
-    console.debug('[SvgEditor] handleWindowMouseMove', { clientX: e.clientX, clientY: e.clientY, svgX: svgP.x, svgY: svgP.y, dragState: dragStateRef.current });
+    
 
     setShapes(prev => prev.map(s => {
       const currentDrag = dragStateRef.current;
@@ -506,7 +539,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
 
     // Marcar que hubo movimiento real para prevenir clicks que deseleccionen
     justFinishedDrag.current = true;
-    console.debug('[SvgEditor] onMouseMove', { mode: dragStateRef.current?.mode, shapeId: dragStateRef.current?.shapeId, clientX: e.clientX, clientY: e.clientY, svgX: svgP.x, svgY: svgP.y, justFinishedDrag: justFinishedDrag.current });
+    
 
     setShapes(prev => prev.map(s => {
       const currentDrag = dragStateRef.current;
@@ -560,7 +593,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
     const draggedShapeId = dragStateRef.current?.shapeId;
     updateDragState(null);
     dragStartPos.current = null;
-    console.debug('[SvgEditor] onMouseUp', { draggedShapeId, justFinishedDrag: justFinishedDrag.current });
+    
 
     // cleanup global listeners immediately to avoid window handlers running after SVG up
     if (windowListenersAttached.current) {
@@ -679,15 +712,13 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
             onMouseDown={(e) => {
               const target = e.target as Element;
               if (target === svgRef.current) {
-                console.debug('[SvgEditor] svg background onMouseDown', { justFinishedDrag: justFinishedDrag.current });
-                setTimeout(() => {
-                  console.debug('[SvgEditor] svg background timeout fired', { justFinishedDrag: justFinishedDrag.current });
-                  if (!justFinishedDrag.current) {
-                    setSelected(null);
-                    updateDragState(null);
-                  }
-                }, 10);
-              }
+                  setTimeout(() => {
+                    if (!justFinishedDrag.current) {
+                      setSelected(null);
+                      updateDragState(null);
+                    }
+                  }, 10);
+                }
             }}
             onMouseMove={onMouseMove}
             onMouseUp={onMouseUp}
@@ -725,10 +756,10 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
                       />
                       {selected === rs.id && (
                         <g>
-                          <rect data-editor-resize="true" x={rs.x - 6} y={rs.y - 6} width={12} height={12} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownResizeCorner(e, rs, 'nw')} />
-                          <rect data-editor-resize="true" x={rs.x + rs.w - 6} y={rs.y - 6} width={12} height={12} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownResizeCorner(e, rs, 'ne')} />
-                          <rect data-editor-resize="true" x={rs.x + rs.w - 6} y={rs.y + rs.h - 6} width={12} height={12} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownResizeCorner(e, rs, 'se')} />
-                          <rect data-editor-resize="true" x={rs.x - 6} y={rs.y + rs.h - 6} width={12} height={12} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownResizeCorner(e, rs, 'sw')} />
+                          <rect data-editor-resize="true" x={rs.x - 3} y={rs.y - 3} width={6} height={6} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownResizeCorner(e, rs, 'nw')} />
+                          <rect data-editor-resize="true" x={rs.x + rs.w - 3} y={rs.y - 3} width={6} height={6} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownResizeCorner(e, rs, 'ne')} />
+                          <rect data-editor-resize="true" x={rs.x + rs.w - 3} y={rs.y + rs.h - 3} width={6} height={6} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownResizeCorner(e, rs, 'se')} />
+                          <rect data-editor-resize="true" x={rs.x - 3} y={rs.y + rs.h - 3} width={6} height={6} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownResizeCorner(e, rs, 'sw')} />
                         </g>
                       )}
                     </g>
@@ -753,7 +784,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
                       {selected === cs.id && (
                         <g>
                           {/* resize square on circle rightmost point */}
-                          <rect data-editor-resize="true" x={cs.x + cs.r - 6} y={cs.y - 6} width={12} height={12} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownCircleResize(e, cs)} />
+                          <rect data-editor-resize="true" x={cs.x + cs.r - 3} y={cs.y - 3} width={6} height={6} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownCircleResize(e, cs)} />
                         </g>
                       )}
                     </g>
@@ -777,8 +808,8 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 200, height = 200, onChange }
                       />
                       {selected === ls.id && (
                         <g>
-                          <rect data-editor-resize="true" x={ls.x1 - 6} y={ls.y1 - 6} width={12} height={12} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownLineEndpoint(e, ls, 'p1')} />
-                          <rect data-editor-resize="true" x={ls.x2 - 6} y={ls.y2 - 6} width={12} height={12} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownLineEndpoint(e, ls, 'p2')} />
+                          <rect data-editor-resize="true" x={ls.x1 - 3} y={ls.y1 - 3} width={6} height={6} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownLineEndpoint(e, ls, 'p1')} />
+                          <rect data-editor-resize="true" x={ls.x2 - 3} y={ls.y2 - 3} width={6} height={6} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownLineEndpoint(e, ls, 'p2')} />
                         </g>
                       )}
                     </g>
