@@ -59,7 +59,12 @@ export async function initDatabase(): Promise<Database> {
 
     // Agregar columna category si no existe (migración)
     try {
-      await db.execute(`ALTER TABLE svg_elements ADD COLUMN category TEXT DEFAULT 'custom'`);
+      const res = await db.select(`SELECT COUNT(*) FROM svg_elements`) as any;
+      const count = res[0]['COUNT(*)'];
+      console.log(count)
+      if (count === 0) {
+        await initializeBasicElements();
+      }
     } catch (e) {
       // La columna ya existe, ignorar el error
     }
