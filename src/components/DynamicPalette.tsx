@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { useDragPayload } from '../DragPayloadContext';
 import {
   Box,
 
@@ -9,15 +10,17 @@ import { getSvgElementsByCategory, getSvgCategories, SvgElement } from '../datab
 
 type Props = {
   onDragStart: (e: React.DragEvent, elementId: string, element?: SvgElement) => void;
+  onInsert?: (elementId: string, element?: SvgElement) => void;
 };
 
 type ElementsByCategory = {
   [category: string]: SvgElement[];
 };
 
-const DynamicPalette: React.FC<Props> = ({ onDragStart }) => {
+const DynamicPalette: React.FC<Props> = ({ onDragStart, onInsert }) => {
   const [elementsByCategory, setElementsByCategory] = useState<ElementsByCategory>({});
   const [loading, setLoading] = useState(true);
+  const { setPayload, clearPayload } = useDragPayload();
 
   const loadElements = useCallback(async () => {
     try {
@@ -149,7 +152,11 @@ const DynamicPalette: React.FC<Props> = ({ onDragStart }) => {
                       <Box
                         key={element.id}
                         draggable
-                        onDragStart={(e) => onDragStart(e, getSymbolKeyForElement(element), element)}
+                        onMouseDown={() => setPayload({ symbolKey: getSymbolKeyForElement(element), svgElement: element })}
+                        onDragStart={(e) => { setPayload({ symbolKey: getSymbolKeyForElement(element), svgElement: element }); onDragStart(e, getSymbolKeyForElement(element), element); }}
+                        onDragEnd={() => clearPayload()}
+                        onMouseUp={() => clearPayload()}
+                        onDoubleClick={() => { if (typeof (onInsert as any) === 'function') { onInsert!(getSymbolKeyForElement(element), element); } }}
                         style={{
                           display: 'flex',
                           alignItems: 'center',

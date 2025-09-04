@@ -23,7 +23,7 @@
   },
   "plugins": {
     "sql": {
-      "preload": ["sqlite:/home/pbarbeito/Dev/DrawPaK/drawpak.db"]
+      "preload": ["sqlite:C:/DrawPaK/drawpak.db"]
     }
   },
   "bundle": {

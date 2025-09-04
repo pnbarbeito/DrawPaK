@@ -14,6 +14,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import './App.css';
 import DynamicPalette from './components/DynamicPalette';
+import { useDragPayload } from './DragPayloadContext';
 import { nodeTypes, defaultEdgeOptions, snapGrid } from './reactFlowConfig';
 import { initDatabase, saveSchema, getAllSchemas, deleteSchema, duplicateSchema, updateSchema, Schema, saveSvgElement, getAllSvgElements, deleteSvgElement, SvgElement, getSvgCategories } from './database';
 import SvgEditorDialog from './components/SvgEditorDialog';
@@ -69,6 +70,8 @@ function snapToGridPos(
         y: Math.round(pos.y / gridSize) * gridSize,
     };
 }
+
+// insertElement will be implemented inside the FlowApp component so it can access nodes state
 
 // Función centralizada para encontrar una posición libre
 function findFreePosition(
@@ -968,12 +971,32 @@ function FlowApp(): React.ReactElement {
 
 
     // Drag handlers for palette items
+    // Note: useDragPayload is used as an intra-window fallback when DataTransfer types are stripped by the host
+    const { setPayload: contextSetPayload, clearPayload: contextClearPayload, getPayload: contextGetPayload } = useDragPayload();
+
     const onDragStart = (event: React.DragEvent, symbolKey: string, svgElement?: SvgElement) => {
-        event.dataTransfer.setData('application/reactflow', symbolKey);
-        if (svgElement) {
-            event.dataTransfer.setData('application/svgelement', JSON.stringify(svgElement));
+        try {
+            event.dataTransfer.setData('application/reactflow', symbolKey);
+            if (svgElement) {
+                event.dataTransfer.setData('application/svgelement', JSON.stringify(svgElement));
+            }
+            event.dataTransfer.effectAllowed = 'move';
+        } catch (e) {
+            // ignore failures to set dataTransfer in embedded hosts
         }
-        event.dataTransfer.effectAllowed = 'move';
+
+        // Always populate in-window context as a reliable fallback for WebView2/Tauri
+        try {
+            contextSetPayload({ symbolKey, svgElement });
+        } catch (e) { /* ignore */ }
+
+        try {
+            const img = document.createElement('img');
+            img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+            event.dataTransfer.setDragImage(img, 0, 0);
+        } catch (e) {
+            // ignore
+        }
     };
 
     const onDrop = useCallback(
@@ -982,22 +1005,40 @@ function FlowApp(): React.ReactElement {
             if (!reactFlowWrapper.current) return;
 
             const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
-            const symbolKey = event.dataTransfer.getData('application/reactflow');
-            if (!symbolKey) return;
 
-            const svgElementData = event.dataTransfer.getData('application/svgelement');
+            // try native dataTransfer first
+            let symbolKey = '';
+            try {
+                symbolKey = event.dataTransfer.getData('application/reactflow') || event.dataTransfer.getData('text/plain') || '';
+            } catch (e) {
+                // ignore
+            }
+
             let svgElement: SvgElement | null = null;
 
-            // onDrop received
-
             try {
+                const svgElementData = event.dataTransfer.getData('application/svgelement') || event.dataTransfer.getData('text/svgelement') || '';
                 if (svgElementData) {
                     svgElement = JSON.parse(svgElementData);
-                    // parsed svgElement
                 }
             } catch (e) {
-                console.warn('Error parsing SVG element data:', e);
+                console.warn('Error parsing SVG element data from dataTransfer:', e);
             }
+
+            // If native transfer provided nothing, fallback to in-window context
+            if (!symbolKey) {
+                try {
+                    const payload = contextGetPayload && contextGetPayload();
+                    if (payload && payload.symbolKey) {
+                        symbolKey = payload.symbolKey;
+                        svgElement = payload.svgElement || null;
+                    }
+                } catch (e) {
+                    // ignore
+                }
+            }
+
+            if (!symbolKey) return; // nothing to insert
 
             const desiredPosition = {
                 x: event.clientX - reactFlowBounds.left,
@@ -1025,15 +1066,45 @@ function FlowApp(): React.ReactElement {
             };
 
             // creating new node
-
             setNodes((nds) => nds.concat(newNode));
+
+            // cleanup context payload after drop
+            try { contextClearPayload(); } catch (e) { }
         },
-        [setNodes, nodes],
+        [setNodes, nodes, contextGetPayload, contextClearPayload],
     );
 
     const onDragOver = useCallback((event: React.DragEvent) => {
         event.preventDefault();
         event.dataTransfer.dropEffect = 'move';
+    }, []);
+
+    React.useEffect(() => {
+        const onWindowDragOver = (e: DragEvent) => {
+            try {
+                e.preventDefault();
+                if ((e as any).dataTransfer) (e as any).dataTransfer.dropEffect = 'move';
+            } catch (err) {
+                // ignore
+            }
+        };
+        const onWindowDragEnter = (e: DragEvent) => {
+            try { e.preventDefault(); } catch (err) { }
+        };
+
+        window.addEventListener('dragover', onWindowDragOver);
+        window.addEventListener('dragenter', onWindowDragEnter);
+        // ensure context payload is cleared if drag ends outside of React
+        const onWindowDragEnd = () => { try { contextClearPayload(); } catch (e) { } };
+        const onWindowMouseUp = () => { try { contextClearPayload(); } catch (e) { } };
+        window.addEventListener('dragend', onWindowDragEnd);
+        window.addEventListener('mouseup', onWindowMouseUp);
+        return () => {
+            window.removeEventListener('dragover', onWindowDragOver);
+            window.removeEventListener('dragenter', onWindowDragEnter);
+            window.removeEventListener('dragend', onWindowDragEnd);
+            window.removeEventListener('mouseup', onWindowMouseUp);
+        };
     }, []);
 
     // Handlers para la selección de área de exportación
@@ -1543,8 +1614,39 @@ function FlowApp(): React.ReactElement {
         setNodes((nds) => nds.map((n) => (n.id === selectedNode.id ? { ...n, data: { ...n.data, ...(patch) } } : n)));
     };
 
+    // insertElement: reusable insertion function (used by double-click or buttons)
+    const insertElement = React.useCallback((symbolKey: string, svgElement?: SvgElement | null, position?: { x: number; y: number } | null) => {
+        if (!reactFlowWrapper.current) return null;
+
+        const rect = reactFlowWrapper.current.getBoundingClientRect();
+
+        let desiredPosition = position ? position : { x: rect.width / 2, y: rect.height / 2 };
+
+        const pos = findFreePosition(desiredPosition, nodes);
+
+        const newNode: Node<any> = {
+            id: getId(),
+            position: pos,
+            type: 'symbolNode',
+            data: svgElement ? {
+                symbolKey,
+                label: svgElement.name,
+                svg: svgElement.svg,
+                handles: svgElement.handles,
+                isDynamicSvg: true
+            } : {
+                symbolKey,
+                label: symbolKey,
+                isDynamicSvg: false
+            },
+        };
+
+        setNodes((nds) => nds.concat(newNode));
+        return newNode.id;
+    }, [nodes, setNodes]);
+
     return (
-        <Box sx={{ height: 'calc(100vh - 17px)', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+            <Box sx={{ height: 'calc(100vh - 17px)', display: 'flex', flexDirection: 'column', position: 'relative' }}>
             <AppBar position="static">
                 <Toolbar variant="dense">
                     <IconButton color="inherit" onClick={handleNewSchema} title="Nuevo esquema">
@@ -1684,7 +1786,7 @@ function FlowApp(): React.ReactElement {
                     </Box>
                 )}
             </Box>
-            <DynamicPalette onDragStart={onDragStart} />
+            <DynamicPalette onDragStart={onDragStart} onInsert={insertElement} />
             {selectedNode ? (
                 <Box style={{ position: 'absolute', right: 12, top: 72, padding: 8, background: '#fff', border: '1px solid #ddd', borderRadius: 6, zIndex: 1300 }}>
                     <Typography variant="h6" style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, textAlign: 'center' }}>
@@ -1913,7 +2015,7 @@ function FlowApp(): React.ReactElement {
                         try { await deleteSvgElement(el.id); const elems = await getAllSvgElements(); setSvgElements(elems); } catch (e) { console.error(e); }
                     }}
                 />
-            </React.Suspense>
+        </React.Suspense>
         </Box>
     );
 }

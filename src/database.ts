@@ -35,7 +35,7 @@ export async function initDatabase(): Promise<Database> {
 
   initPromise = (async () => {
     try {
-      db = await Database.load('sqlite:/home/pbarbeito/Dev/DrawPaK/drawpak.db');
+      db = await Database.load('sqlite:C:/DrawPaK/drawpak.db');
 
       // Crear las tablas si no existen
       await db.execute(`
