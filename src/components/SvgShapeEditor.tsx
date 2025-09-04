@@ -8,7 +8,7 @@ import CableIcon from '@mui/icons-material/Cable';
 type Handle = { id: string; x: number; y: number; type?: 'source' | 'target' };
 type BaseShape = {
   id: string;
-  type: 'rect' | 'circle' | 'line';
+  type: 'rect' | 'circle' | 'line' | 'semicircle';
   fill?: boolean;
   fillColor?: string;
   fillOpacity?: number;
@@ -20,13 +20,16 @@ type BaseShape = {
 
 type RectShape = BaseShape & { type: 'rect'; x: number; y: number; w: number; h: number };
 type CircleShape = BaseShape & { type: 'circle'; x: number; y: number; r: number };
+type SemiCircleShape = BaseShape & { type: 'semicircle'; x: number; y: number; r: number };
 type LineShape = BaseShape & { type: 'line'; x1: number; y1: number; x2: number; y2: number };
-type Shape = RectShape | CircleShape | LineShape;
+type Shape = RectShape | CircleShape | SemiCircleShape | LineShape;
 
 type Props = {
   width?: number;
   height?: number;
   onChange?: (result: { svg: string; handles: (Handle & { shapeId?: string })[] }) => void;
+  displayScale?: number; // optional controlled scale from parent
+  onDisplayScaleChange?: (n: number) => void;
 };
 
 // GRID is the snapping resolution inside the editor (px)
@@ -36,12 +39,13 @@ const GRID_SIZE = 20;
 
 const defaultRect = (id: string): RectShape => ({ id, type: 'rect', x: 20, y: 20, w: 60, h: 40, fill: true, fillColor: 'rgba(255, 255, 255, 0)', fillOpacity: 0, strokeColor: '#000', strokeWidth: 2, rotation: 0, handles: [] });
 const defaultCircle = (id: string): CircleShape => ({ id, type: 'circle', x: 60, y: 60, r: 30, fill: true, fillColor: 'rgba(255, 255, 255, 0)', fillOpacity: 0, strokeColor: '#000', strokeWidth: 2, rotation: 0, handles: [] });
+const defaultSemi = (id: string): SemiCircleShape => ({ id, type: 'semicircle', x: 60, y: 60, r: 30, fill: false, fillColor: 'none', fillOpacity: 1, strokeColor: '#000', strokeWidth: 2, rotation: 0, handles: [] });
 const defaultLine = (id: string): LineShape => ({ id, type: 'line', x1: 60, y1: 80, x2: 60, y2: 40, fill: false, fillColor: '#000000', fillOpacity: 1, strokeColor: '#000', strokeWidth: 2, rotation: 0, handles: [] });
 
 const DISPLAY_SCALE = 3;
 const STORAGE_KEY = 'svgShapeEditor.draft.v1';
 
-const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }) => {
+const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange, displayScale }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const saveTimerRef = useRef<number | null>(null);
   const dragStartPos = useRef<{ x: number; y: number } | null>(null);
@@ -54,6 +58,10 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
   const [selectedHandleId, setSelectedHandleId] = useState<string | null>(null);
   const [canvasWidth, setCanvasWidth] = useState<number>(width);
   const [canvasHeight, setCanvasHeight] = useState<number>(height);
+  const [displayScaleState, setDisplayScaleState] = useState<number>(DISPLAY_SCALE);
+  // determine effective display scale: prefer controlled prop when provided
+  const effectiveDisplayScale = typeof displayScale === 'number' ? displayScale : displayScaleState;
+  // Note: parent may control displayScale via props; internal state is used when uncontrolled.
   // grid is always visible in the editor but must not be persisted with the exported SVG
   // Ref to keep an up-to-date dragState for global event handlers (avoid stale closures)
   const dragStateRef = useRef<null | {
@@ -83,10 +91,12 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
-        const parsed = JSON.parse(raw) as { shapes?: Shape[]; canvasWidth?: number; canvasHeight?: number };
+        const parsed = JSON.parse(raw) as { shapes?: Shape[]; canvasWidth?: number; canvasHeight?: number; displayScale?: number };
         if (Array.isArray(parsed.shapes)) setShapes(parsed.shapes as Shape[]);
         if (typeof parsed.canvasWidth === 'number') setCanvasWidth(parsed.canvasWidth);
         if (typeof parsed.canvasHeight === 'number') setCanvasHeight(parsed.canvasHeight);
+  // only initialize internal state when parent is not controlling displayScale
+  if (typeof (parsed as any).displayScale === 'number' && typeof displayScale !== 'number') setDisplayScaleState((parsed as any).displayScale);
       }
     } catch (err) {
       // ignore parse errors
@@ -100,8 +110,10 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
     }
     saveTimerRef.current = window.setTimeout(() => {
       try {
-        const payload = JSON.stringify({ shapes, canvasWidth, canvasHeight });
-        localStorage.setItem(STORAGE_KEY, payload);
+  // persist displayScale only if internal (uncontrolled)
+  const payload: any = { shapes, canvasWidth, canvasHeight };
+  if (typeof displayScale !== 'number') payload.displayScale = displayScaleState;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
       } catch (err) {
         // ignore
       }
@@ -179,6 +191,11 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
     setShapes(prev => [...prev, defaultCircle(id)]);
     setSelected(id);
   };
+  const addSemi = () => {
+    const id = `shape_${Date.now()}`;
+    setShapes(prev => [...prev, defaultSemi(id)]);
+    setSelected(id);
+  };
 
   const addLine = () => {
     const id = `shape_${Date.now()}`;
@@ -199,7 +216,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
     }
   };
 
-  const onMouseDownCircleResize = (e: React.MouseEvent, shape: CircleShape) => {
+  const onMouseDownCircleResize = (e: React.MouseEvent, shape: CircleShape | SemiCircleShape) => {
     e.stopPropagation();
     if (e.button !== 0) return;
     setSelected(shape.id);
@@ -269,7 +286,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
             s.id = newid;
             // offset position a bit so pasted item is visible
             if (s.type === 'rect') { s.x = (s.x || 0) + 10; s.y = (s.y || 0) + 10; }
-            if (s.type === 'circle') { s.x = (s.x || 0) + 10; s.y = (s.y || 0) + 10; }
+            if (s.type === 'circle' || s.type === 'semicircle') { s.x = (s.x || 0) + 10; s.y = (s.y || 0) + 10; }
             if (s.type === 'line') { s.x1 = (s.x1 || 0) + 10; s.y1 = (s.y1 || 0) + 10; s.x2 = (s.x2 || 0) + 10; s.y2 = (s.y2 || 0) + 10; }
             // remap handles ids
             if (Array.isArray(s.handles)) {
@@ -304,8 +321,8 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
           if (s.type === 'rect') {
             return { ...s, x: s.x + dx, y: s.y + dy, handles: s.handles.map(h => ({ ...h, x: h.x + dx, y: h.y + dy })) };
           }
-          if (s.type === 'circle') {
-            return { ...s, x: s.x + dx, y: s.y + dy, handles: s.handles.map(h => ({ ...h, x: h.x + dx, y: h.y + dy })) };
+          if (s.type === 'circle' || s.type === 'semicircle') {
+            return { ...s, x: (s as any).x + dx, y: (s as any).y + dy, handles: s.handles.map(h => ({ ...h, x: h.x + dx, y: h.y + dy })) };
           }
           if (s.type === 'line') {
             return { ...s, x1: s.x1 + dx, y1: s.y1 + dy, x2: s.x2 + dx, y2: s.y2 + dy, handles: s.handles.map(h => ({ ...h, x: h.x + dx, y: h.y + dy })) };
@@ -325,10 +342,10 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
     setShapes(prev => prev.map(s => {
       if (s.id !== selected) return s;
       const hid = `h_${Date.now()}`;
-      let hx = 0, hy = 0;
-      if (s.type === 'rect') { hx = snap(s.x + s.w / 2); hy = snap(s.y + s.h / 2); }
-      else if (s.type === 'circle') { hx = snap(s.x); hy = snap(s.y); }
-      else if (s.type === 'line') { hx = snap((s.x1 + s.x2) / 2); hy = snap((s.y1 + s.y2) / 2); }
+  let hx = 0, hy = 0;
+  if (s.type === 'rect') { hx = snap(s.x + s.w / 2); hy = snap(s.y + s.h / 2); }
+  else if (s.type === 'circle' || s.type === 'semicircle') { hx = snap((s as any).x); hy = snap((s as any).y); }
+  else if (s.type === 'line') { hx = snap((s.x1 + s.x2) / 2); hy = snap((s.y1 + s.y2) / 2); }
       return { ...s, handles: [...(s.handles || []), { id: hid, x: hx, y: hy, type: 'source' }] };
     }));
   };
@@ -354,10 +371,10 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
     dragStartPos.current = { x: e.clientX, y: e.clientY };
     dragStartTime.current = Date.now();
 
-    setSelected(shape.id);
-    // offset for move
-    if (shape.type === 'rect') updateDragState({ mode: 'move', shapeId: shape.id, offsetX: svgP.x - shape.x, offsetY: svgP.y - shape.y });
-    else if (shape.type === 'circle') updateDragState({ mode: 'move', shapeId: shape.id, offsetX: svgP.x - shape.x, offsetY: svgP.y - shape.y });
+  setSelected(shape.id);
+  // offset for move
+  if (shape.type === 'rect') updateDragState({ mode: 'move', shapeId: shape.id, offsetX: svgP.x - shape.x, offsetY: svgP.y - shape.y });
+  else if (shape.type === 'circle' || shape.type === 'semicircle') updateDragState({ mode: 'move', shapeId: shape.id, offsetX: svgP.x - (shape as any).x, offsetY: svgP.y - (shape as any).y });
     else if (shape.type === 'line') {
       // For lines, we need a reference point. Let's use x1, y1 as the anchor for the offset.
       updateDragState({ mode: 'move', shapeId: shape.id, offsetX: svgP.x - shape.x1, offsetY: svgP.y - shape.y1 });
@@ -415,15 +432,15 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
       }
 
       if (currentDrag?.mode === 'move') {
-        if (s.type === 'rect') {
+          if (s.type === 'rect') {
           const newX = snap(svgP.x - (currentDrag.offsetX || 0));
           const newY = snap(svgP.y - (currentDrag.offsetY || 0));
           return { ...s, x: newX, y: newY } as RectShape;
         }
-        if (s.type === 'circle') {
+        if (s.type === 'circle' || s.type === 'semicircle') {
           const newX = snap(svgP.x - (currentDrag.offsetX || 0));
           const newY = snap(svgP.y - (currentDrag.offsetY || 0));
-          return { ...s, x: newX, y: newY } as CircleShape;
+          return { ...s, x: newX, y: newY } as any;
         }
         if (s.type === 'line') {
           const dx = s.x2 - s.x1;
@@ -451,7 +468,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
         return { ...s, x: nx, y: ny, w: nw, h: nh } as RectShape;
       }
       // resize handling for circle radius
-      if (currentDrag?.mode === 'resize' && s.type === 'circle') {
+  if (currentDrag?.mode === 'resize' && (s.type === 'circle' || s.type === 'semicircle')) {
         const cs = s as CircleShape;
         if (currentDrag.corner === 'radius') {
           const dx = svgP.x - cs.x;
@@ -478,7 +495,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
         }
       }
       // resize handling for circle radius
-      if (currentDrag?.mode === 'resize' && s.type === 'circle') {
+  if (currentDrag?.mode === 'resize' && (s.type === 'circle' || s.type === 'semicircle')) {
         const cs = s as CircleShape;
         if (currentDrag.corner === 'radius') {
           // compute new radius based on mouse distance to center
@@ -733,7 +750,10 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
           <Button variant="contained" startIcon={<AddBoxIcon />} onClick={addRect}>Rectángulo</Button>
         </Box>
         <Box>
-          <Button variant="contained" startIcon={<RadioButtonUncheckedIcon />} onClick={addCircle}>Circulo</Button>
+          <Button variant="contained" startIcon={<RadioButtonUncheckedIcon />} onClick={addCircle}>Círculo</Button>
+        </Box>
+        <Box>
+          <Button variant="contained" onClick={addSemi}>Semicírculo</Button>
         </Box>
         <Box>
           <Button variant="contained" startIcon={<HorizontalRuleIcon />} onClick={addLine}>Línea</Button>
@@ -752,12 +772,12 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
       </Box>
 
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-        <Box sx={{ border: '1px solid #ddd', width: canvasWidth * DISPLAY_SCALE + 5, height: canvasHeight * DISPLAY_SCALE + 5, overflow: 'auto' }}>
+        <Box sx={{ border: '1px solid #ddd', width: canvasWidth * effectiveDisplayScale + 5, height: canvasHeight * effectiveDisplayScale + 5, overflow: 'auto' }}>
           <svg
             ref={svgRef}
             // visual size is scaled, user draws in logical coordinates via viewBox
-            width={canvasWidth * DISPLAY_SCALE}
-            height={canvasHeight * DISPLAY_SCALE}
+            width={canvasWidth * effectiveDisplayScale}
+            height={canvasHeight * effectiveDisplayScale}
             viewBox={`0 0 ${canvasWidth} ${canvasHeight}`}
             style={{ background: 'rgba(255, 255, 255, 0.0)' }}
             onMouseDown={(e) => {
@@ -844,6 +864,25 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
                   );
                 })()}
 
+                {s.type === 'semicircle' && (() => {
+                  const ss = s as SemiCircleShape;
+                  const cx = ss.x;
+                  const cy = ss.y;
+                  // semicircle drawn as an open arc from left to right (no closing line)
+                  const d = `M ${ss.x - ss.r} ${ss.y} A ${ss.r} ${ss.r} 0 0 1 ${ss.x + ss.r} ${ss.y}`;
+                  return (
+                    <g transform={`rotate(${ss.rotation || 0}, ${cx}, ${cy})`}>
+                      <path d={d} fill={'none'} stroke={ss.strokeColor} strokeWidth={ss.strokeWidth} strokeLinecap="butt" onMouseDown={(e) => onMouseDownShape(e, ss)} />
+                      {selected === ss.id && (
+                        <g>
+                          {/* resize square on semicircle rightmost point */}
+                          <rect data-editor-resize="true" x={ss.x + ss.r - 3} y={ss.y - 3} width={6} height={6} fill="#fff" stroke="#666" onMouseDown={(e) => onMouseDownCircleResize(e, ss as any)} />
+                        </g>
+                      )}
+                    </g>
+                  );
+                })()}
+
                 {s.type === 'line' && (() => {
                   const ls = s as LineShape;
                   const cx = (ls.x1 + ls.x2) / 2;
@@ -893,6 +932,7 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
         <Box sx={{ display: 'flex', gap: 2, flex: '1 1 50%', minWidth: 260 }}>
           <Box sx={{ flex: '1 1 50%', minWidth: 220 }}>
             <Typography variant="subtitle1">Propiedades</Typography>
+            {/* Scale control is provided by parent dialog; no slider here */}
             {/* grid always visible in editor (not persisted) */}
             {!selected && <Typography variant="body2" color="text.secondary">Selecciona una forma para editar sus propiedades</Typography>}
             {selected && selectedShape && (
@@ -981,6 +1021,16 @@ const SvgShapeEditor: React.FC<Props> = ({ width = 120, height = 120, onChange }
                       <TextField fullWidth label="CX" type="number" size="small" value={(selectedShape as CircleShape).x} onChange={(e) => updateSelectedProp({ x: Number(e.target.value) } as any)} />
                       <TextField fullWidth label="CY" type="number" size="small" value={(selectedShape as CircleShape).y} onChange={(e) => updateSelectedProp({ y: Number(e.target.value) } as any)} />
                       <TextField fullWidth sx={{ gridColumn: '1 / -1' }} label="R" type="number" size="small" value={(selectedShape as CircleShape).r} onChange={(e) => updateSelectedProp({ r: Number(e.target.value) } as any)} />
+                    </Box>
+                  </>
+                )}
+
+                {selectedShape.type === 'semicircle' && (
+                  <>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+                      <TextField fullWidth label="CX" type="number" size="small" value={(selectedShape as SemiCircleShape).x} onChange={(e) => updateSelectedProp({ x: Number(e.target.value) } as any)} />
+                      <TextField fullWidth label="CY" type="number" size="small" value={(selectedShape as SemiCircleShape).y} onChange={(e) => updateSelectedProp({ y: Number(e.target.value) } as any)} />
+                      <TextField fullWidth sx={{ gridColumn: '1 / -1' }} label="R" type="number" size="small" value={(selectedShape as SemiCircleShape).r} onChange={(e) => updateSelectedProp({ r: Number(e.target.value) } as any)} />
                     </Box>
                   </>
                 )}

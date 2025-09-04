@@ -33,6 +33,7 @@ const SvgEditorDialog: React.FC<Props> = ({
   sanitizedSvg, svgElements, onSaveSvgElement, onDeleteElement
 }) => {
   const [editorReloadKey, setEditorReloadKey] = React.useState<number>(Date.now());
+  const [dialogDisplayScale, setDialogDisplayScale] = React.useState<number | undefined>(undefined);
 
   const STORAGE_KEY = 'svgShapeEditor.draft.v1';
 
@@ -86,12 +87,19 @@ const SvgEditorDialog: React.FC<Props> = ({
       const shapes: any[] = [];
 
       const parseTransformRotation = (el: Element | null) => {
-        if (!el) return 0;
-        const t = el.getAttribute('transform') || '';
-        const m = t.match(/rotate\(([^)]+)\)/);
-        if (!m) return 0;
-        const parts = m[1].split(/[ ,]+/).map(p => parseFloat(p)).filter(n => !isNaN(n));
-        return parts[0] || 0;
+        // Accumulate rotate(...) angles from the element and its ancestor chain.
+        let total = 0;
+        let node: Element | null = el;
+        while (node) {
+          const t = node.getAttribute('transform') || '';
+          const m = t.match(/rotate\(([^)]+)\)/);
+          if (m) {
+            const parts = m[1].split(/[ ,]+/).map(p => parseFloat(p)).filter(n => !isNaN(n));
+            if (parts.length > 0) total += parts[0] || 0;
+          }
+          node = node.parentElement as Element | null;
+        }
+        return total;
       };
 
       // rects
@@ -153,7 +161,65 @@ const SvgEditorDialog: React.FC<Props> = ({
       Array.from(doc.querySelectorAll('path')).forEach((pathEl, idx) => {
         const d = (pathEl.getAttribute('d') || '').trim();
         if (!d) return;
-        // extract numbers (handles various separators and scientific notation)
+        // Try to detect an arc command (A or a) and map simple semicircle arcs to the editor's semicircle shape
+        try {
+          const cmdTokens = d.match(/[AaMmLlHhVvCcSsQqTtZz]|[+-]?(?:\d*\.)?\d+(?:[eE][+-]?\d+)?/g) || [];
+          // find initial M (start point)
+          let startX: number | null = null;
+          let startY: number | null = null;
+          for (let i = 0; i < cmdTokens.length; i++) {
+            const t = cmdTokens[i];
+            if ((t === 'M' || t === 'm') && i + 2 < cmdTokens.length) {
+              startX = parseFloat(cmdTokens[i + 1]);
+              startY = parseFloat(cmdTokens[i + 2]);
+              break;
+            }
+          }
+
+          // find first arc command
+          let arcIdx = -1;
+          for (let i = 0; i < cmdTokens.length; i++) {
+            if (cmdTokens[i] === 'A' || cmdTokens[i] === 'a') { arcIdx = i; break; }
+          }
+
+          if (arcIdx !== -1 && startX !== null && startY !== null) {
+            // A rx ry xAxisRot largeArcFlag sweepFlag x y
+            const rx = parseFloat(cmdTokens[arcIdx + 1]);
+            const ry = parseFloat(cmdTokens[arcIdx + 2]);
+            const xAxisRot = parseFloat(cmdTokens[arcIdx + 3]) || 0;
+            // flags (ignored for semicircle detection)
+            let x2 = parseFloat(cmdTokens[arcIdx + 6]);
+            let y2 = parseFloat(cmdTokens[arcIdx + 7]);
+
+            // If the arc command was relative ('a'), endpoint is relative to start
+            if (cmdTokens[arcIdx] === 'a') {
+              x2 = startX + x2;
+              y2 = startY + y2;
+            }
+
+            // If radii are equal and endpoints are roughly opposite points on circle -> semicircle
+            const dx = x2 - startX;
+            const dy = y2 - startY;
+            const dist = Math.hypot(dx, dy);
+            const tol = Math.max(1, Math.min(4, rx * 0.1));
+
+            if (!isNaN(rx) && !isNaN(ry) && Math.abs(rx - ry) < 0.0001 && Math.abs(dist - 2 * rx) <= tol) {
+              // center is midpoint for a simple semicircle
+              const cx = (startX + x2) / 2;
+              const cy = (startY + y2) / 2;
+              const stroke = pathEl.getAttribute('stroke') || '#000';
+                const strokeW = parseFloat(pathEl.getAttribute('stroke-width') || '1');
+                // include x-axis-rotation from the arc command plus any ancestor rotate()
+                const rotation = (parseTransformRotation(pathEl) || 0) + (xAxisRot || 0);
+                shapes.push({ id: `shape_import_semi_${el.id}_${idx}_${Date.now()}`, type: 'semicircle', x: cx, y: cy, r: rx, fill: false, fillColor: 'none', strokeColor: stroke, strokeWidth: strokeW || 1, rotation: rotation || 0, handles: [] });
+              return; // handled this path as semicircle
+            }
+          }
+        } catch (e) {
+          // parsing failed, fall back to numeric extraction below
+        }
+
+        // fallback: extract numbers (handles various separators and scientific notation)
         const nums = d.match(/[+-]?(?:\d*\.)?\d+(?:[eE][+-]?\d+)?/g)?.map(n => parseFloat(n)) || [];
         if (nums.length >= 4) {
           const x1 = nums[0];
@@ -297,6 +363,30 @@ const SvgEditorDialog: React.FC<Props> = ({
           </Select>
         </FormControl>
 
+        <Box style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+          <FormControlLabel
+            control={<Checkbox checked={useEditor} onChange={(e) => setUseEditor(e.target.checked)} />}
+            label="Usar editor gráfico"
+          />
+          {/* Slider for visual display scale: visible only when editor is active */}
+          {useEditor && (
+            <div style={{ display: 'flex', alignItems: 'center', marginLeft: '8px', gap: 8 }}>
+              <div style={{ width: 220 }}>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="6"
+                  step="0.1"
+                  value={typeof dialogDisplayScale === 'number' ? dialogDisplayScale : 3}
+                  onChange={(e) => setDialogDisplayScale(Number(e.target.value))}
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div style={{ minWidth: 48 }}><strong>{(typeof dialogDisplayScale === 'number' ? dialogDisplayScale : 3).toFixed(1)}x</strong></div>
+            </div>
+          )}
+        </Box>
+
         {useEditor ? (
           <>
             <Box style={{ marginTop: 8, border: '1px solid #ddd', padding: 8 }}>
@@ -308,6 +398,8 @@ const SvgEditorDialog: React.FC<Props> = ({
                   setSvgMarkup(typeof res.svg === 'string' ? res.svg : '');
                   try { setSvgHandles(JSON.stringify(res.handles || [])); } catch (e) { setSvgHandles('[]'); }
                 }}
+                displayScale={typeof dialogDisplayScale === 'number' ? dialogDisplayScale : undefined}
+                onDisplayScaleChange={(n) => setDialogDisplayScale(n)}
               />
             </Box>
           </>
@@ -320,7 +412,7 @@ const SvgEditorDialog: React.FC<Props> = ({
               variant="outlined"
               value={svgHandles}
               onChange={(e) => setSvgHandles(e.target.value)}
-              helperText='Ej: [{"id":"left","position":"left","offset":"50%","type":"source"}]'
+              helperText='Ej: [{"id":"h_1756916462310","x":30,"y":45,"type":"source"}]'
             />
             <TextField
               margin="dense"
@@ -347,12 +439,7 @@ const SvgEditorDialog: React.FC<Props> = ({
           </>
         )}
 
-        <Box style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
-          <FormControlLabel
-            control={<Checkbox checked={useEditor} onChange={(e) => setUseEditor(e.target.checked)} />}
-            label="Usar editor gráfico"
-          />
-        </Box>
+        
 
         <Box style={{ marginTop: 12 }}>
           <Typography variant="subtitle2">Elementos guardados</Typography>

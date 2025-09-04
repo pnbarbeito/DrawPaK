@@ -175,6 +175,9 @@ function FlowApp(): React.ReactElement {
     const [sanitizedSvg, setSanitizedSvg] = React.useState('');
     const [useEditor, setUseEditor] = React.useState(true);
 
+    // nodeTypes and defaultEdgeOptions are defined outside components in reactFlowConfig
+    // so they can be used directly without memoization
+
     React.useEffect(() => {
         let mounted = true;
         (async () => {
@@ -756,6 +759,8 @@ function FlowApp(): React.ReactElement {
     // Agregar atajos de teclado para undo/redo
     React.useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            // If the SVG editor dialog is open, let the dialog handle keyboard events
+            if (showSvgDialog) return;
             if (e.ctrlKey || e.metaKey) {
                 if (e.key === 'z' && !e.shiftKey) {
                     e.preventDefault();
@@ -796,10 +801,6 @@ function FlowApp(): React.ReactElement {
     }, [setNodes, setEdges]);
 
     const handleClearAll = useCallback(() => {
-        console.log('🗑️ handleClearAll ejecutándose...', {
-            timestamp: new Date().toISOString(),
-            stackTrace: new Error().stack?.split('\n').slice(1, 5).join('\n')
-        });
 
         // Clear all nodes and edges
         setNodes([]);
@@ -813,49 +814,39 @@ function FlowApp(): React.ReactElement {
         try {
             localStorage.removeItem(STORAGE_KEY);
             localStorage.removeItem(CURRENT_SCHEMA_KEY);
-            console.log('✅ localStorage limpiado');
+            // localStorage cleaned
         } catch (error) {
             console.error('Error limpiando localStorage:', error);
         }
         // Limpiar historial
         setHistory([]);
         setHistoryIndex(-1);
-        console.log('🎯 handleClearAll completado');
+    // handleClearAll completed
     }, [setNodes, setEdges, setCurrentSchemaId, setCurrentSchemaName]);
 
     const handleNewSchema = useCallback(() => {
         if (isHandlingNewSchema) {
-            console.log('⚠️ handleNewSchema ya se está ejecutando, ignorando...');
             return;
         }
 
-        console.log('🆕 Botón Nuevo Esquema presionado', {
-            nodes: nodes.length,
-            edges: edges.length,
-            currentSchemaId,
-            currentSchemaName
-        });
-
         // Solo mostrar confirmación si hay contenido
         if (nodes.length > 0 || edges.length > 0) {
-            console.log('⚠️ Hay contenido, mostrando diálogo de confirmación...');
+            // there is content, show confirmation dialog
             setShowNewSchemaConfirm(true);
         } else {
             // Si no hay contenido, limpiar directamente
-            console.log('ℹ️ No hay contenido, limpiando directamente');
+            // no content, clearing directly
             handleClearAll();
         }
     }, [nodes.length, edges.length, currentSchemaId, currentSchemaName, handleClearAll, isHandlingNewSchema]);
 
     const confirmNewSchema = useCallback(() => {
-        console.log('✅ Usuario confirmó crear nuevo esquema');
         setShowNewSchemaConfirm(false);
         setIsHandlingNewSchema(false);
         handleClearAll();
     }, [handleClearAll]);
 
     const cancelNewSchema = useCallback(() => {
-        console.log('❌ Usuario canceló crear nuevo esquema');
         setShowNewSchemaConfirm(false);
         setIsHandlingNewSchema(false);
     }, []);
@@ -870,7 +861,6 @@ function FlowApp(): React.ReactElement {
 
         if (selectedNodes.length > 0) {
             setClipboard({ nodes: selectedNodes, edges: selectedEdges });
-            console.log(`Copiados ${selectedNodes.length} nodos y ${selectedEdges.length} conexiones`);
         }
     }, [nodes, edges, setClipboard]);
 
@@ -914,7 +904,7 @@ function FlowApp(): React.ReactElement {
         setNodes(nds => nds.map(n => ({ ...n, selected: false })).concat(newNodes));
         setEdges(eds => eds.concat(newEdges));
 
-        console.log(`Pegados ${newNodes.length} nodos y ${newEdges.length} conexiones`);
+    // pasted nodes and edges
     }, [clipboard, setNodes, setEdges, nodes]);
 
     // Función helper para exportar sin fondo de puntos
@@ -937,6 +927,8 @@ function FlowApp(): React.ReactElement {
 
     useEffect(() => {
         const onKeyDown = (event: KeyboardEvent) => {
+            // If the SVG editor dialog is open, don't handle global shortcuts here
+            if (showSvgDialog) return;
             // If focus is inside an editable field, don't intercept Delete/Backspace so the user can edit text
             const active = document.activeElement as HTMLElement | null;
             const isEditable = active && (
@@ -969,8 +961,8 @@ function FlowApp(): React.ReactElement {
         };
 
         // use capture phase so other layers (like ReactFlow) don't stop the event before we see it
-        window.addEventListener('keydown', onKeyDown, true);
-        return () => window.removeEventListener('keydown', onKeyDown, true);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
     }, [handleDelete, copySelectedElements, pasteElements]);
 
 
@@ -996,18 +988,12 @@ function FlowApp(): React.ReactElement {
             const svgElementData = event.dataTransfer.getData('application/svgelement');
             let svgElement: SvgElement | null = null;
 
-            console.log('🎯 onDrop received:', { symbolKey, svgElementData: !!svgElementData });
+            // onDrop received
 
             try {
                 if (svgElementData) {
                     svgElement = JSON.parse(svgElementData);
-                    console.log('📦 Parsed svgElement:', {
-                        id: svgElement?.id,
-                        name: svgElement?.name,
-                        hasSvg: !!svgElement?.svg,
-                        svgLength: svgElement?.svg?.length,
-                        hasHandles: !!svgElement?.handles
-                    });
+                    // parsed svgElement
                 }
             } catch (e) {
                 console.warn('Error parsing SVG element data:', e);
@@ -1038,14 +1024,7 @@ function FlowApp(): React.ReactElement {
                 },
             };
 
-            console.log('✨ Creating new node:', {
-                id: newNode.id,
-                type: newNode.type,
-                dataKeys: Object.keys(newNode.data),
-                isDynamicSvg: newNode.data.isDynamicSvg,
-                hasSvg: !!newNode.data.svg,
-                svgLength: newNode.data.svg?.length
-            });
+            // creating new node
 
             setNodes((nds) => nds.concat(newNode));
         },

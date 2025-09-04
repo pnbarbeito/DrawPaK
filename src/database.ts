@@ -22,16 +22,23 @@ export interface SvgElement {
 }
 
 let db: Database | null = null;
+// Promise to ensure we only initialize the database once when multiple callers
+// call initDatabase concurrently (prevents multiple seeding of basic elements).
+let initPromise: Promise<Database> | null = null;
 
 // Inicializar la base de datos
 export async function initDatabase(): Promise<Database> {
   if (db) return db;
 
-  try {
-    db = await Database.load('sqlite:/home/pbarbeito/Dev/DrawPaK/drawpak.db');
+  // If initialization is already in progress, wait for it.
+  if (initPromise) return initPromise;
 
-    // Crear las tablas si no existen
-    await db.execute(`
+  initPromise = (async () => {
+    try {
+      db = await Database.load('sqlite:/home/pbarbeito/Dev/DrawPaK/drawpak.db');
+
+      // Crear las tablas si no existen
+      await db.execute(`
       CREATE TABLE IF NOT EXISTS schemas (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -43,8 +50,8 @@ export async function initDatabase(): Promise<Database> {
       )
     `);
 
-    // Tabla para elementos SVG personalizados
-    await db.execute(`
+      // Tabla para elementos SVG personalizados
+      await db.execute(`
       CREATE TABLE IF NOT EXISTS svg_elements (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -57,27 +64,31 @@ export async function initDatabase(): Promise<Database> {
       )
     `);
 
-    // Agregar columna category si no existe (migración)
-    try {
-      const res = await db.select(`SELECT COUNT(*) FROM svg_elements`) as any;
-      const count = res[0]['COUNT(*)'];
-      console.log(count)
-      if (count === 0) {
-        await initializeBasicElements();
+      try {
+        const res = await db.select(`SELECT COUNT(*) FROM svg_elements`) as any;
+        const count = res[0]['COUNT(*)'];
+        if (count === 0) {
+          // Llamamos al inicializador una sola vez. Gracias a initPromise, otras
+          // llamadas concurrentes esperarán a que termine y no reinyectarán los
+          // mismos elementos.
+          await initializeBasicElements();
+        }
+      } catch (e) {
+        // Ignorar errores puntuales al consultar/contar
       }
-    } catch (e) {
-      // La columna ya existe, ignorar el error
+
+      console.log('Base de datos inicializada correctamente');
+      return db as Database;
+    } catch (error) {
+      console.error('Error inicializando la base de datos:', error);
+      throw error;
+    } finally {
+      // Clear the promise so future calls can either return `db` or retry init
+      initPromise = null;
     }
+  })();
 
-    // Inicializar elementos básicos
-    //await initializeBasicElements();
-
-    console.log('Base de datos inicializada correctamente');
-    return db;
-  } catch (error) {
-    console.error('Error inicializando la base de datos:', error);
-    throw error;
-  }
+  return initPromise;
 }
 
 // Guardar un esquema
@@ -316,33 +327,33 @@ export async function initializeBasicElements(): Promise<void> {
           <defs xmlns="http://www.w3.org/2000/svg"/>
           <g xmlns="http://www.w3.org/2000/svg">
               <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 60, 60)">
-                  <circle xmlns="http://www.w3.org/2000/svg" cx="60" fill-opacity="1" fill="#fff" stroke="#000" r="30" stroke-width="2" cy="60"/>
-                  <g xmlns="http://www.w3.org/2000/svg"/>
+                  <circle xmlns="http://www.w3.org/2000/svg" fill-opacity="0" cx="60" fill="#fff" stroke-width="2" stroke="#000" cy="60" r="30"/>
               </g>
           </g>
           <g xmlns="http://www.w3.org/2000/svg">
               <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 40, 100)">
-                  <circle xmlns="http://www.w3.org/2000/svg" cx="40" fill-opacity="1" fill="#fff" stroke="#000" r="30" stroke-width="2" cy="100"/>
+                  <circle xmlns="http://www.w3.org/2000/svg" fill-opacity="0" cx="40" fill="#fff" stroke-width="2" stroke="#000" cy="100" r="30"/>
               </g>
           </g>
           <g xmlns="http://www.w3.org/2000/svg">
               <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 80, 100)">
-                  <circle xmlns="http://www.w3.org/2000/svg" cx="80" fill-opacity="1" fill="none" stroke="#000" r="30" stroke-width="2" cy="100"/>
+                  <circle xmlns="http://www.w3.org/2000/svg" fill-opacity="0" cx="80" fill="none" stroke-width="2" stroke="#000" cy="100" r="30"/>
+                  <g xmlns="http://www.w3.org/2000/svg"/>
               </g>
           </g>
           <g xmlns="http://www.w3.org/2000/svg">
               <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 60, 15)">
-                  <line xmlns="http://www.w3.org/2000/svg" y2="0" y1="30" stroke="#000" x2="60" stroke-width="2" x1="60"/>
+                  <line xmlns="http://www.w3.org/2000/svg" x1="60" y1="30" stroke-width="2" stroke="#000" y2="0" x2="60"/>
               </g>
           </g>
           <g xmlns="http://www.w3.org/2000/svg">
               <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 40, 145)">
-                  <line xmlns="http://www.w3.org/2000/svg" y2="130" y1="160" stroke="#000" x2="40" stroke-width="2" x1="40"/>
+                  <line xmlns="http://www.w3.org/2000/svg" x1="40" y1="160" stroke-width="2" stroke="#000" y2="130" x2="40"/>
               </g>
           </g>
           <g xmlns="http://www.w3.org/2000/svg">
               <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 80, 145)">
-                  <line xmlns="http://www.w3.org/2000/svg" y2="130" y1="160" stroke="#000" x2="80" stroke-width="2" x1="80"/>
+                  <line xmlns="http://www.w3.org/2000/svg" x1="80" y1="160" stroke-width="2" stroke="#000" y2="130" x2="80"/>
               </g>
           </g>
       </svg>`,
@@ -419,58 +430,53 @@ export async function initializeBasicElements(): Promise<void> {
           <defs xmlns="http://www.w3.org/2000/svg"/>
           <g xmlns="http://www.w3.org/2000/svg">
               <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 100, 46)">
-                  <rect xmlns="http://www.w3.org/2000/svg" x="60" y="21" stroke="#000" stroke-width="2" fill="rgba(255, 255, 255, 0)" width="80" height="50"/>
-                  <g xmlns="http://www.w3.org/2000/svg"/>
+                  <rect xmlns="http://www.w3.org/2000/svg" fill="rgba(255, 255, 255, 0)" height="50" x="60" width="80" y="21" stroke="#000" stroke-width="2"/>
               </g>
           </g>
           <g xmlns="http://www.w3.org/2000/svg">
               <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 70, 50)">
-                  <circle xmlns="http://www.w3.org/2000/svg" stroke="#000" stroke-width="1" r="4" fill="#000" cx="70" cy="50"/>
+                  <circle xmlns="http://www.w3.org/2000/svg" fill="#000" stroke="#000" stroke-width="1" cy="50" cx="70" r="4"/>
               </g>
           </g>
           <g xmlns="http://www.w3.org/2000/svg">
               <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 130, 50)">
-                  <circle xmlns="http://www.w3.org/2000/svg" stroke="#000" stroke-width="1" r="4" fill="#000" cx="130" cy="50"/>
+                  <circle xmlns="http://www.w3.org/2000/svg" fill="#000" stroke="#000" stroke-width="1" cy="50" cx="130" r="4"/>
               </g>
           </g>
           <g xmlns="http://www.w3.org/2000/svg">
               <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 15, 100)">
-                  <line xmlns="http://www.w3.org/2000/svg" y1="100" stroke="#000" y2="100" stroke-width="2" x1="0" x2="30"/>
+                  <line xmlns="http://www.w3.org/2000/svg" x1="0" stroke="#000" stroke-width="2" x2="30" y2="100" y1="100"/>
+                  <g xmlns="http://www.w3.org/2000/svg"/>
               </g>
           </g>
           <g xmlns="http://www.w3.org/2000/svg">
               <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 100, 40)">
-                  <line xmlns="http://www.w3.org/2000/svg" y1="50" stroke="#000" y2="30" stroke-width="2" x1="70" x2="130"/>
+                  <line xmlns="http://www.w3.org/2000/svg" x1="70" stroke="#000" stroke-width="2" x2="130" y2="30" y1="50"/>
               </g>
           </g>
           <g xmlns="http://www.w3.org/2000/svg">
-              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 187, 100)">
-                  <line xmlns="http://www.w3.org/2000/svg" y1="100" stroke="#000" y2="100" stroke-width="2" x1="172" x2="202"/>
-              </g>
-          </g>
-          <g xmlns="http://www.w3.org/2000/svg">
-              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 50, 100)">
-                  <circle xmlns="http://www.w3.org/2000/svg" stroke="#000" stroke-width="2" r="20" fill="rgba(255, 255, 255, 0)" cx="50" fill-opacity="0" cy="100"/>
-              </g>
-          </g>
-          <g xmlns="http://www.w3.org/2000/svg">
-              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 152, 100)">
-                  <circle xmlns="http://www.w3.org/2000/svg" stroke="#000" stroke-width="2" r="20" fill="rgba(255, 255, 255, 0)" cx="152" fill-opacity="0" cy="100"/>
-              </g>
-          </g>
-          <g xmlns="http://www.w3.org/2000/svg">
-              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 100, 97.5)">
-                  <rect xmlns="http://www.w3.org/2000/svg" x="40" y="75" stroke="#ffffff" stroke-width="2" fill="#ffffff" width="120" fill-opacity="1" height="45"/>
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 186, 100)">
+                  <line xmlns="http://www.w3.org/2000/svg" x1="170" stroke="#000" stroke-width="2" x2="202" y2="100" y1="100"/>
               </g>
           </g>
           <g xmlns="http://www.w3.org/2000/svg">
               <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 55, 50)">
-                  <line xmlns="http://www.w3.org/2000/svg" y1="50" stroke="#000" y2="50" stroke-width="2" x1="40" x2="70"/>
+                  <line xmlns="http://www.w3.org/2000/svg" x1="40" stroke="#000" stroke-width="2" x2="70" y2="50" y1="50"/>
               </g>
           </g>
           <g xmlns="http://www.w3.org/2000/svg">
               <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 145, 50)">
-                  <line xmlns="http://www.w3.org/2000/svg" y1="50" stroke="#000" y2="50" stroke-width="2" x1="130" x2="160"/>
+                  <line xmlns="http://www.w3.org/2000/svg" x1="130" stroke="#000" stroke-width="2" x2="160" y2="50" y1="50"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(270, 50, 100)">
+                  <path xmlns="http://www.w3.org/2000/svg" fill="none" stroke-linecap="butt" d="M 30 100 A 20 20 0 0 1 70 100" stroke="#000" stroke-width="2"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(90, 150, 100)">
+                  <path xmlns="http://www.w3.org/2000/svg" fill="none" stroke-linecap="butt" d="M 130 100 A 20 20 0 0 1 170 100" stroke="#000" stroke-width="2"/>
               </g>
           </g>
       </svg>`,
@@ -754,32 +760,27 @@ export async function initializeBasicElements(): Promise<void> {
       description: 'Dispositivo de bloqueo',
       category: 'seguridad',
       svg: `
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 60" style="background: rgba(255, 255, 255, 0);">
+      <svg xmlns="http://www.w3.org/2000/svg" style="background: rgba(255, 255, 255, 0);" viewBox="0 0 60 60">
           <defs xmlns="http://www.w3.org/2000/svg"/>
           <g xmlns="http://www.w3.org/2000/svg">
-              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 30, 20)">
-                  <circle xmlns="http://www.w3.org/2000/svg" stroke="#000" r="14" cy="20" cx="30" fill="rgba(255, 255, 255, 0)" stroke-width="2"/>
-              </g>
-          </g>
-          <g xmlns="http://www.w3.org/2000/svg">
               <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 30, 43.5)">
-                  <rect xmlns="http://www.w3.org/2000/svg" height="25" stroke="#000" fill="#62a0ea" stroke-width="2" y="31" width="40" x="10"/>
+                  <rect xmlns="http://www.w3.org/2000/svg" stroke-width="2" fill="#62a0ea" width="40" stroke="#000" y="31" height="25" x="10"/>
                   <g xmlns="http://www.w3.org/2000/svg"/>
               </g>
           </g>
           <g xmlns="http://www.w3.org/2000/svg">
-              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 30, 24)">
-                  <rect xmlns="http://www.w3.org/2000/svg" height="10" stroke="#ffffff" fill="#ffffff" stroke-width="2" y="19" width="40" x="10" fill-opacity="1"/>
-              </g>
-          </g>
-          <g xmlns="http://www.w3.org/2000/svg">
               <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 16, 24.5)">
-                  <line xmlns="http://www.w3.org/2000/svg" stroke="#000" y1="32" stroke-width="2" y2="17" x1="16" x2="16"/>
+                  <line xmlns="http://www.w3.org/2000/svg" stroke-width="2" y1="32" x1="16" stroke="#000" y2="17" x2="16"/>
               </g>
           </g>
           <g xmlns="http://www.w3.org/2000/svg">
               <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 44, 24)">
-                  <line xmlns="http://www.w3.org/2000/svg" stroke="#000" y1="30" stroke-width="2" y2="18" x1="44" x2="44"/>
+                  <line xmlns="http://www.w3.org/2000/svg" stroke-width="2" y1="30" x1="44" stroke="#000" y2="18" x2="44"/>
+              </g>
+          </g>
+          <g xmlns="http://www.w3.org/2000/svg">
+              <g xmlns="http://www.w3.org/2000/svg" transform="rotate(0, 30, 20)">
+                  <path xmlns="http://www.w3.org/2000/svg" stroke-width="2" fill="none" d="M 16 20 A 14 14 0 0 1 44 20" stroke="#000" stroke-linecap="butt"/>
               </g>
           </g>
       </svg>`,
